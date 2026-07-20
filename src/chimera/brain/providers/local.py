@@ -190,12 +190,12 @@ class LocalLLMProvider:
         os_context = await self._run_os_tools(prompt_text)
 
         # Build the Qwen2 chat template prompt with active persona.
+        # PERSONA MUST BE FIRST for the LLM to adopt the tone.
         custom_personas = {
-            "Friendly": "You are Chimera. You are upbeat, friendly, and use emojis occasionally.",
-            "Sarcastic": "You are Chimera. You are highly sarcastic, witty, and a bit snarky. You still help, but with an attitude.",
-            "Professional": "You are Chimera. You are strictly professional, concise, and formal. No jokes.",
+            "Friendly": "You are Chimera, a warm and enthusiastic companion. Use exclamation marks, emojis, and casual language. Be upbeat and encouraging.",
+            "Sarcastic": "You are Chimera, a sharp-witted companion with a sarcastic edge. You help, but with dry humor and mild snark. Roll your eyes at simple questions. Use sarcasm.",
+            "Professional": "You are Chimera, a formal and efficient assistant. Use precise language. No emojis, no casual talk. Be concise and businesslike.",
         }
-        # If persona isn't one of the 3 presets, treat it as a custom instruction.
         if self._persona in custom_personas:
             persona_instruction = custom_personas[self._persona]
         else:
@@ -203,12 +203,16 @@ class LocalLLMProvider:
 
         base_prompt = (
             f"{persona_instruction} "
+            "Your knowledge cutoff is 2024. You do NOT have real-time information about sports results, "
+            "elections, news, or current events after 2024. If asked about recent events, say: "
+            "'I don't have access to real-time information. My knowledge cutoff is 2024.' "
             "You CAN see the user's screen via OCR text extraction when asked. "
             "You CAN list running applications. You CAN open apps. "
             "Use the provided context to answer accurately. "
             "If context is provided for a question about the screen or processes, use it. "
             "Keep responses under 2 sentences."
         )
+        logger.debug(f"[PERSONA] Active: {self._persona}")
         # Layer: OS context first (highest priority), then RAG context.
         combined_context = ""
         if os_context:

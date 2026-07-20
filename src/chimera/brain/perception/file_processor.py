@@ -44,11 +44,26 @@ class FileProcessor:
         Args:
             event: The FileDropEvent with file_paths.
         """
+        supported = {".pdf", ".docx", ".txt", ".md"}
+
         for file_path in event.file_paths:
             logger.info(f"File dropped: {file_path}")
-
-            # Show "ingesting" indicator.
             filename = file_path.split("/")[-1] if "/" in file_path else file_path
+            ext = f".{filename.split('.')[-1]}" if "." in filename else ""
+
+            # Check extension FIRST — reject unsupported before "Ingesting".
+            if ext and ext.lower() not in supported:
+                logger.warning(f"Unsupported file type: {ext}")
+                await self._bus.publish(  # type: ignore[union-attr]
+                    SpeakRequest(
+                        text=f"⚠️ I can't read {ext} files yet. I support PDF, DOCX, and TXT. Try dropping a text document!",
+                        interrupt=False,
+                        emotion=Emotion.NEUTRAL,
+                    )
+                )
+                continue
+
+            # Show "ingesting" indicator ONLY for supported files.
             await self._bus.publish(  # type: ignore[union-attr]
                 SpeakRequest(
                     text=f"📄 Ingesting {filename}...",
@@ -60,13 +75,6 @@ class FileProcessor:
             # Run ingestion in background thread.
             try:
                 result = await self._rag.ingest_file(file_path)  # type: ignore[union-attr]
-                # If result indicates unsupported file type, give helpful guidance.
-                if "unsupported" in result.lower() or "could not" in result.lower():
-                    result = (
-                        f"⚠️ I can't read .{filename.split('.')[-1] if '.' in filename else '?'} "
-                        f"files yet. I support PDF, DOCX, and TXT files. "
-                        f"Try dropping a text document!"
-                    )
             except Exception as exc:
                 logger.error(f"Ingestion failed for {file_path}: {exc}")
                 result = f"❌ Failed to process {filename}"
