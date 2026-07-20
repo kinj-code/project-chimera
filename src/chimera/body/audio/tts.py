@@ -1,7 +1,10 @@
-"""VoiceManager — text-to-speech using pyttsx3 (offline, cross-platform).
+"""VoiceManager — text-to-speech using gTTS (Google Text-to-Speech).
 
-Subscribes to SpeakRequest on the EventBus. Runs speech synthesis in a
-background thread to keep the UI responsive.
+Subscribes to SpeakRequest on the EventBus. Generates speech via gTTS API,
+saves to a temp MP3, plays with ffplay, then cleans up.
+
+Falls back gracefully to console logging if voice generation fails
+(e.g. no internet connection).
 
 Author: Project Chimera Engineering Team
 """
@@ -9,7 +12,9 @@ Author: Project Chimera Engineering Team
 from __future__ import annotations
 
 import asyncio
-import threading
+import os
+import subprocess
+import tempfile
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -17,18 +22,18 @@ from loguru import logger
 from chimera.bridge.events import SpeakRequest
 
 if TYPE_CHECKING:
-    import pyttsx3
+    pass
 
 
 class VoiceManager:
-    """Manages text-to-speech output via pyttsx3.
+    """Manages text-to-speech output via gTTS + ffplay.
 
-    Speaks every SpeakRequest published on the EventBus. Speech runs
-    in a thread to avoid blocking the Qt event loop.
+    Speaks every SpeakRequest published on the EventBus. Audio generation
+    and playback run in a background thread to avoid blocking the Qt event loop.
     """
 
     def __init__(self, bus: object, enabled: bool = True) -> None:
-        """Initialize the voice engine.
+        """Initialize the voice manager.
 
         Args:
             bus: The EventBus instance.
@@ -36,22 +41,16 @@ class VoiceManager:
         """
         self._bus = bus
         self._enabled = enabled
-        self._engine: pyttsx3.Engine | None = None
-        self._speak_lock = threading.Lock()
-        logger.info("VoiceManager initialized")
+        logger.info("VoiceManager initialized (gTTS + ffplay)")
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     async def attach(self) -> None:
-        """Subscribe to SpeakRequest and initialize the pyttsx3 engine."""
+        """Subscribe to SpeakRequest on the EventBus."""
         self._bus.subscribe(SpeakRequest, self._on_speak_request)  # type: ignore[arg-type]
         logger.info("VoiceManager attached to EventBus (SpeakRequest)")
-
-        # Initialize engine in a background thread (pyttsx3 init can be slow).
-        await asyncio.to_thread(self._init_engine)
-        logger.success("VoiceManager ready")
 
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable voice output at runtime.
@@ -63,34 +62,13 @@ class VoiceManager:
         logger.info(f"Voice enabled: {enabled}")
 
     # ------------------------------------------------------------------
-    # Engine initialization
-    # ------------------------------------------------------------------
-
-    def _init_engine(self) -> None:
-        """Initialize the pyttsx3 TTS engine. Runs in a background thread."""
-        try:
-            import pyttsx3
-
-            self._engine = pyttsx3.init()
-            self._engine.setProperty("rate", 175)  # Slightly faster than default 200
-            self._engine.setProperty("volume", 0.9)
-            voices = self._engine.getProperty("voices")
-            if voices:
-                self._engine.setProperty("voice", voices[0].id)
-            logger.info("pyttsx3 engine initialized")
-        except Exception as exc:
-            logger.error(f"Failed to initialize pyttsx3: {exc}")
-            self._engine = None
-
-    # ------------------------------------------------------------------
     # Event handler
     # ------------------------------------------------------------------
 
     async def _on_speak_request(self, event: SpeakRequest) -> None:
-        """Handle a SpeakRequest by vocalizing the text.
+        """Handle a SpeakRequest by generating and playing audio.
 
-        Runs pyttsx3 synthesis in a background thread to avoid
-        blocking the Qt event loop.
+        Runs gTTS generation + ffplay playback in a background thread.
 
         Args:
             event: The SpeakRequest from the EventBus.
@@ -99,43 +77,56 @@ class VoiceManager:
             logger.debug(f"Voice muted. Suppressed: '{event.text[:50]}...'")
             return
 
-        if self._engine is None:
-            logger.warning("Voice engine not initialized. Skipping speech.")
-            return
-
         text = event.text.strip()
         if not text:
             return
 
         logger.info(f"Speaking: '{text[:80]}{'...' if len(text) > 80 else ''}'")
 
-        # Run the blocking pyttsx3 call in a thread.
+        # Run in background thread to avoid blocking the Qt event loop.
         await asyncio.to_thread(self._speak_blocking, text)
 
     def _speak_blocking(self, text: str) -> None:
-        """Run engine.say() + engine.runAndWait() synchronously.
+        """Generate MP3 with gTTS and play with ffplay.
 
         Args:
             text: The text to speak.
         """
-        if self._engine is None:
-            return
-        with self._speak_lock:
-            try:
-                self._engine.say(text)
-                self._engine.runAndWait()
-            except Exception as exc:
-                logger.error(f"Speech synthesis error: {exc}")
+        tmp_path: str | None = None
+        try:
+            from gtts import gTTS
+
+            # Generate MP3 to a temp file.
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix=".mp3", prefix="chimera-tts-")
+            os.close(tmp_fd)
+
+            tts = gTTS(text=text, lang="en", slow=False)
+            tts.save(tmp_path)
+
+            # Play with ffplay (suppresses video window, quiet output).
+            subprocess.run(
+                ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", tmp_path],
+                timeout=30,
+                capture_output=True,
+            )
+        except FileNotFoundError:
+            logger.warning("[VOICE FAILED] ffplay not found. Text: {}", text)
+            print(f"[VOICE FAILED] {text}")
+        except Exception as exc:
+            logger.warning(f"[VOICE FAILED] {exc}. Text: {text}")
+            print(f"[VOICE FAILED] {text}")
+        finally:
+            # Clean up temp file.
+            if tmp_path is not None:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
     # ------------------------------------------------------------------
     # Cleanup
     # ------------------------------------------------------------------
 
     def shutdown(self) -> None:
-        """Stop the TTS engine and release resources."""
-        if self._engine is not None:
-            try:
-                self._engine.stop()
-            except Exception:
-                pass
+        """Release resources (no-op for gTTS)."""
         logger.info("VoiceManager shut down")

@@ -160,11 +160,20 @@ class MainWindow(QMainWindow):
     async def _on_speak_request(self, event: SpeakRequest) -> None:
         """Handle a SpeakRequest from the Brain.
 
-        Replaces the "thinking..." placeholder with the actual response.
+        Shows a speaking indicator, then replaces the "thinking..." placeholder
+        with the actual response.
 
         Args:
             event: The SpeakRequest event from the EventBus.
         """
+        # Show speaking indicator in gray italic.
+        formatted = (
+            '<p><span style="color: #888888; font-style: italic;">'
+            "🔊 Chimera is speaking...</span></p>"
+        )
+        self._log.append(formatted)
+
+        # Replace the thinking placeholder with the actual response.
         self._replace_thinking(event.text)
 
     # ------------------------------------------------------------------

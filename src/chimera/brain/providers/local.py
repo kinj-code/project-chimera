@@ -175,10 +175,13 @@ class LocalLLMProvider:
         # Build the Qwen2 chat template prompt.
         persona_instructions = self._get_persona_instructions()
         system_prompt = (
-            f"You are a {self._persona.lower()} AI desktop companion named Chimera. "
-            f"{persona_instructions} "
-            f"Keep responses short, warm, and conversational. "
-            f"One to three sentences maximum."
+            "You are Chimera, a friendly desktop companion. "
+            "You CANNOT see the user's screen, files, or desktop. "
+            "If asked about the screen, desktop, or files, say: "
+            "'I don't have screen access yet, but I'm working on it!'. "
+            "Keep responses under 2 sentences. "
+            "Be warm, concise, and helpful. "
+            "Never claim to see things you cannot see."
         )
         formatted_prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{prompt_text}<|im_end|>\n<|im_start|>assistant\n"
 
