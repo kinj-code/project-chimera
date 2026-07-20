@@ -50,6 +50,8 @@ async def bootstrap() -> None:
     from chimera.ui.main_window import MainWindow
     from chimera.ui.widgets.theme_engine import ThemeManager
     from chimera.bridge.state import StateManager
+    from chimera.brain.memory.rag_engine import RAGManager
+    from chimera.brain.perception.file_processor import FileProcessor
 
     # 0. Theme & State.
     state_mgr = StateManager()
@@ -72,9 +74,13 @@ async def bootstrap() -> None:
     overlay.attach(bus)
     overlay.show()
 
-    # 4. LocalLLMProvider (real LLM with Qwen2).
-    logger.info("Starting LocalLLMProvider (Qwen2 0.5B)...")
-    llm = LocalLLMProvider(bus)
+    # 3.5. RAGManager (document ingestion + retrieval).
+    logger.info("Starting RAGManager...")
+    rag = RAGManager()
+
+    # 4. LocalLLMProvider (real LLM with Qwen2 + RAG context).
+    logger.info("Starting LocalLLMProvider (Qwen2 0.5B + RAG)...")
+    llm = LocalLLMProvider(bus, rag_manager=rag)
     await llm.attach()
 
     # 5. VoiceManager (Piper TTS).
@@ -86,6 +92,11 @@ async def bootstrap() -> None:
     logger.info("Starting SpeechToTextManager (faster-whisper)...")
     stt = SpeechToTextManager(bus)
     await stt.attach()
+
+    # 7. FileProcessor (drag-and-drop → RAG ingestion).
+    logger.info("Starting FileProcessor...")
+    file_proc = FileProcessor(bus, rag)
+    await file_proc.attach()
 
     # Wire settings references so the MainWindow can update them.
     main_window.llm_provider = llm
@@ -107,6 +118,7 @@ async def bootstrap() -> None:
     loop._chimera_bus = bus  # type: ignore[attr-defined]
     loop._chimera_llm = llm  # type: ignore[attr-defined]
     loop._chimera_voice = voice  # type: ignore[attr-defined]
+    loop._chimera_rag = rag  # type: ignore[attr-defined]
 
 
 def main() -> None:

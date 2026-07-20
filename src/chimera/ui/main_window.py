@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from chimera.bridge.events import SpeakRequest, TextInputEvent, ListenRequest  # type: ignore[import-untyped]
+from chimera.bridge.events import SpeakRequest, TextInputEvent, ListenRequest, FileDropEvent  # type: ignore[import-untyped]
 
 if TYPE_CHECKING:
     from chimera.bridge.bus import EventBus
@@ -105,6 +105,9 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self._log, stretch=1)
         layout.addLayout(input_row, stretch=0)
+
+        # Enable drag-and-drop.
+        self.setAcceptDrops(True)
 
         # Welcome message.
         self._append_to_log("System", "Welcome to Project Chimera. Type a message to begin.")
@@ -269,6 +272,29 @@ class MainWindow(QMainWindow):
 
         self._append_to_log("System", "🎤 Listening... (5 seconds)")
         asyncio.ensure_future(self._bus.publish(ListenRequest(duration_s=5.0)))
+
+    # ------------------------------------------------------------------
+    # Drag and Drop
+    # ------------------------------------------------------------------
+
+    def dragEnterEvent(self, event) -> None:  # type: ignore[override]
+        """Accept file drag events."""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event) -> None:  # type: ignore[override]
+        """Handle dropped files by publishing a FileDropEvent."""
+        urls = event.mimeData().urls()
+        if urls:
+            file_paths = [url.toLocalFile() for url in urls]
+            for fp in file_paths:
+                filename = fp.split("/")[-1] if "/" in fp else fp
+                self._append_to_log("System", f"📄 Received: {filename}")
+
+            import asyncio
+            asyncio.ensure_future(
+                self._bus.publish(FileDropEvent(file_paths=file_paths))
+            )
 
     def _append_to_log(self, speaker: str, message: str) -> None:
         """Append a formatted message to the chat log.

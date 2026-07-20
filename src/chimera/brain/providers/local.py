@@ -48,6 +48,7 @@ class LocalLLMProvider:
         n_ctx: int = 2048,
         n_threads: int = 4,
         temperature: float = 0.8,
+        rag_manager: object | None = None,
     ) -> None:
         """Initialize the local LLM provider.
 
@@ -57,10 +58,12 @@ class LocalLLMProvider:
             n_ctx: Context window size in tokens.
             n_threads: CPU threads for inference.
             temperature: Sampling temperature (0.0-2.0).
+            rag_manager: Optional RAGManager for document-aware responses.
         """
         self._bus = bus
         self._temperature = temperature
         self._persona: str = "Friendly"
+        self._rag = rag_manager
 
         # Resolve model path.
         if model_path is None:
@@ -172,9 +175,14 @@ class LocalLLMProvider:
 
         logger.info(f"LLM input: '{prompt_text}'")
 
+        # Check RAG for relevant document context.
+        rag_context = ""
+        if self._rag and hasattr(self._rag, 'query_context'):
+            rag_context = await self._rag.query_context(prompt_text)  # type: ignore[union-attr]
+
         # Build the Qwen2 chat template prompt.
         persona_instructions = self._get_persona_instructions()
-        system_prompt = (
+        base_prompt = (
             "You are Chimera, a friendly desktop companion. "
             "You CANNOT see the user's screen, files, or desktop. "
             "If asked about the screen, desktop, or files, say: "
@@ -183,6 +191,15 @@ class LocalLLMProvider:
             "Be warm, concise, and helpful. "
             "Never claim to see things you cannot see."
         )
+        if rag_context:
+            system_prompt = (
+                f"Use the following context to answer the user's question:\n\n"
+                f"{rag_context}\n\n"
+                f"---\n"
+                f"{base_prompt}"
+            )
+        else:
+            system_prompt = base_prompt
         formatted_prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{prompt_text}<|im_end|>\n<|im_start|>assistant\n"
 
         # Run LLM generation in a background thread.
