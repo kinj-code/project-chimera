@@ -13,3 +13,6 @@ htmlcov/
 *.tmp
 *.bak
 assets/*.gguf
+assets/voices/*.onnx
+assets/voices/*.onnx.json
+data/

@@ -278,6 +278,7 @@ class StateManager:
     @staticmethod
     def _serialize(state: ChimeraState) -> str:
         """Serialize state to a YAML string, excluding runtime fields."""
-        # Exclude runtime state from persistence.
-        data = state.model_dump(exclude={"runtime"}, mode="python")
+        # Use mode="json" so that enums (RendererMode, Emotion, etc.)
+        # are serialized as their string values, not as opaque objects.
+        data = state.model_dump(exclude={"runtime"}, mode="json")
         return yaml.safe_dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
