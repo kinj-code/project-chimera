@@ -95,6 +95,9 @@ class MainWindow(QMainWindow):
         # Display user message in the log.
         self._append_to_log("You", text)
 
+        # Show "thinking..." placeholder — replaced when response arrives.
+        self._append_thinking()
+
         # Clear the input field.
         self._input.clear()
 
@@ -107,12 +110,51 @@ class MainWindow(QMainWindow):
     async def _on_speak_request(self, event: SpeakRequest) -> None:
         """Handle a SpeakRequest from the Brain.
 
-        Appends the companion's response text to the chat log.
+        Replaces the "thinking..." placeholder with the actual response.
 
         Args:
             event: The SpeakRequest event from the EventBus.
         """
-        self._append_to_log("Chimera", event.text)
+        self._replace_thinking(event.text)
+
+    # ------------------------------------------------------------------
+    # Thinking placeholder
+    # ------------------------------------------------------------------
+
+    def _append_thinking(self) -> None:
+        """Append a gray italic 'Chimera is thinking...' placeholder line.
+
+        The placeholder is removed and replaced when the real response
+        arrives via _replace_thinking().
+        """
+        formatted = (
+            '<p><span style="color: #888888; font-style: italic;">'
+            "Chimera is thinking...</span></p>"
+        )
+        self._log.append(formatted)
+
+    def _replace_thinking(self, response_text: str) -> None:
+        """Remove the last 'thinking' placeholder and append the real response.
+
+        Args:
+            response_text: The actual response from the Brain.
+        """
+        doc = self._log.document()
+        cursor = self._log.textCursor()
+
+        # Move to the end and select the last block (the thinking placeholder).
+        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.movePosition(
+            cursor.MoveOperation.StartOfBlock, cursor.MoveMode.KeepAnchor
+        )
+        cursor.removeSelectedText()
+
+        # Clean up any trailing newlines left behind.
+        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.deletePreviousChar()  # remove extra newline if present
+
+        # Append the real response.
+        self._append_to_log("Chimera", response_text)
 
     # ------------------------------------------------------------------
     # Helpers

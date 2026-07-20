@@ -49,6 +49,28 @@ class StubLLMProvider:
         self._bus.subscribe(TextInputEvent, self._on_text_input)  # type: ignore[arg-type]
         logger.info("StubLLMProvider attached to EventBus")
 
+        # Schedule welcome message 2 seconds after startup.
+        asyncio.create_task(self._send_welcome())
+
+    async def _send_welcome(self) -> None:
+        """Send a welcome SpeakRequest 2 seconds after launch.
+
+        Silently handles bus-closed race (e.g. during rapid smoke tests).
+        In the real GUI, the bus stays alive indefinitely.
+        """
+        await asyncio.sleep(2.0)
+        speak = SpeakRequest(
+            text="Welcome back. I'm Chimera.",
+            interrupt=False,
+            emotion=Emotion.NEUTRAL,
+        )
+        try:
+            await self._bus.publish(speak)  # type: ignore[union-attr]
+            logger.info("StubLLM sent welcome message")
+        except RuntimeError:
+            # Bus already shut down (test teardown race). Harmless.
+            pass
+
     async def _on_text_input(self, event: TextInputEvent) -> None:
         """Handle a user text input event.
 
