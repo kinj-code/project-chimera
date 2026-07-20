@@ -50,6 +50,7 @@ class LocalLLMProvider:
         temperature: float = 0.8,
         rag_manager: object | None = None,
         os_awareness: object | None = None,
+        web_search: object | None = None,
     ) -> None:
         """Initialize the local LLM provider.
 
@@ -67,6 +68,7 @@ class LocalLLMProvider:
         self._persona: str = "Friendly"
         self._rag = rag_manager
         self._os = os_awareness
+        self._web_search = web_search
 
         # Resolve model path.
         if model_path is None:
@@ -203,6 +205,19 @@ class LocalLLMProvider:
             k = 8 if "summarize" in prompt_text.lower() else 5
             rag_context = await self._run_rag_query(prompt_text, k)
             logger.info(f"[RAG] Retrieved chunks for: '{prompt_text}'")
+
+        # --- Web search: only search if user explicitly asks for web search ---
+        web_context = ""
+        web_search_keywords = [
+            "search for", "google", "look up", "find information about",
+            "who is", "what is", "latest", "current", "news", "recent"
+        ]
+        if any(kw in prompt_text.lower() for kw in web_search_keywords):
+            if self._web_search is not None:
+                logger.info(f"[WEB] Searching for: '{prompt_text}'")
+                web_context = await self._run_web_search(prompt_text)
+                if web_context:
+                    logger.info(f"[WEB] Got search results")
 
         # --- Tool calling: intercept user intent before LLM generation ---
         os_context = await self._run_os_tools(prompt_text)
@@ -425,6 +440,31 @@ class LocalLLMProvider:
         """
         if self._rag and hasattr(self._rag, 'query_context'):
             return await self._rag.query_context(prompt, k)  # type: ignore[union-attr]
+        return ""
+
+    async def _run_web_search(self, prompt: str) -> str:
+        """Perform web search if web search manager is available.
+
+        Args:
+            prompt: The user's input text.
+
+        Returns:
+            Web search results as formatted text, or empty string.
+        """
+        if self._web_search is None:
+            return ""
+        try:
+            if hasattr(self._web_search, 'search_web'):
+                # Check if it's an async method.
+                import asyncio
+                if asyncio.iscoroutinefunction(self._web_search.search_web):
+                    return await self._web_search.search_web(prompt)
+                else:
+                    # Run synchronous method in thread.
+                    return await asyncio.to_thread(self._web_search.search_web, prompt)
+        except Exception as exc:
+            logger.error(f"Web search failed: {exc}")
+            return ""
         return ""
 
     def _get_persona_instructions(self) -> str:
