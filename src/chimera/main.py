@@ -54,6 +54,7 @@ async def bootstrap() -> None:
     from chimera.brain.perception.file_processor import FileProcessor
     from chimera.brain.perception.os_awareness import OSAwarenessManager
     from chimera.brain.perception.web_browser import WebBrowserManager
+    from chimera.bridge.connectivity import ConnectivityProbe
 
     # 0. Theme & State.
     state_mgr = StateManager()
@@ -89,7 +90,12 @@ async def bootstrap() -> None:
     web_search = WebBrowserManager()
     await web_search.initialize()
 
-    # 4. LocalLLMProvider (real LLM with Qwen2 + RAG + OS awareness + Web search).
+    # 3.8. ConnectivityProbe (tool availability gating).
+    logger.info("Starting ConnectivityProbe...")
+    connectivity = ConnectivityProbe(bus)
+    await connectivity.probe_and_publish()
+
+    # 4. LocalLLMProvider (real LLM with Qwen2 + RAG + OS awareness + Web search + Tool gating).
     logger.info("Starting LocalLLMProvider (Qwen2 0.5B + RAG + OS)...")
     llm = LocalLLMProvider(bus, rag_manager=rag, os_awareness=os_aware)
     await llm.attach()

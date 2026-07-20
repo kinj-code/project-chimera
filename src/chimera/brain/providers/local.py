@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from chimera.bridge.events import Emotion, MoodChange, SpeakRequest, TextInputEvent
+from chimera.bridge.events import Emotion, MoodChange, SpeakRequest, TextInputEvent, ToolAvailability
 
 if TYPE_CHECKING:
     from llama_cpp import Llama
@@ -69,6 +69,13 @@ class LocalLLMProvider:
         self._rag = rag_manager
         self._os = os_awareness
         self._web_search = web_search
+        self._tool_availability: dict[str, bool] = {
+            "web_search": True,
+            "screen_ocr": True,
+            "microphone": True,
+            "file_system": True,
+            "app_launcher": True,
+        }
 
         # Resolve model path.
         if model_path is None:
@@ -88,6 +95,7 @@ class LocalLLMProvider:
     async def attach(self) -> None:
         """Subscribe to the event bus and load the model in background."""
         self._bus.subscribe(TextInputEvent, self._on_text_input)  # type: ignore[arg-type]
+        self._bus.subscribe(ToolAvailability, self._on_tool_availability)  # type: ignore[arg-type]
         logger.info("LocalLLMProvider attached to EventBus")
 
         # Load the model in a background thread so the UI isn't blocked.
@@ -183,6 +191,11 @@ class LocalLLMProvider:
     # ------------------------------------------------------------------
     # Event handler
     # ------------------------------------------------------------------
+
+    async def _on_tool_availability(self, event: ToolAvailability) -> None:
+        """Update tool availability state."""
+        self._tool_availability = event.tools.copy()
+        logger.debug(f"[TOOLS] Availability updated: {self._tool_availability}")
 
     async def _on_text_input(self, event: TextInputEvent) -> None:
         """Handle a user text input event by generating an LLM response.
@@ -348,7 +361,11 @@ class LocalLLMProvider:
             "2025", "2026", "happened in 2025", "happened in 2026",
             "latest", "current event", "this year",
         ]
-        if any(kw in lower for kw in realtime_keywords):
+        if not self._is_tool_available("web_search"):
+            results.append(
+                self._tool_unavailable_message("web_search", "search the web", "no network connection")
+            )
+        elif any(kw in lower for kw in realtime_keywords):
             results.append(
                 "WARNING: This is a real-time question. You do NOT have this information. "
                 "Tell the user your knowledge cutoff is 2024."
@@ -367,16 +384,21 @@ class LocalLLMProvider:
             "read my screen", "what does my screen say", "scan my display",
         ]
         if any(kw in lower for kw in screen_keywords):
-            logger.info("Tool: capturing screen OCR")
-            screen_text = await self._os.capture_screen()  # type: ignore[union-attr]
-            # Detect OCR environment failure.
-            if screen_text == "[OCR_UNAVAILABLE_IN_ENV]":
+            if not self._is_tool_available("screen_ocr"):
                 results.append(
-                    "If asked about the screen, say: 'I cannot read the screen "
-                    "because the Tesseract OCR system library is missing on this machine.'"
+                    self._tool_unavailable_message("screen_ocr", "read your screen", "OCR is not available")
                 )
             else:
-                results.append(f"Screen text (OCR):\n{screen_text}")
+                logger.info("Tool: capturing screen OCR")
+                screen_text = await self._os.capture_screen()  # type: ignore[union-attr]
+                # Detect OCR environment failure.
+                if screen_text == "[OCR_UNAVAILABLE_IN_ENV]":
+                    results.append(
+                        "If asked about the screen, say: 'I cannot read the screen "
+                        "because the Tesseract OCR system library is missing on this machine.'"
+                    )
+                else:
+                    results.append(f"Screen text (OCR):\n{screen_text}")
 
         # File system keywords.
         fs_keywords = [
@@ -417,6 +439,11 @@ class LocalLLMProvider:
         launch_keywords = ["open ", "launch "]
         for kw in launch_keywords:
             if kw in lower:
+                if not self._is_tool_available("app_launcher"):
+                    results.append(
+                        self._tool_unavailable_message("app_launcher", "launch apps", "app launching is unavailable")
+                    )
+                    break
                 idx = lower.find(kw) + len(kw)
                 app_name = prompt[idx:].strip().split()[0] if idx < len(prompt) else ""
                 if app_name:
@@ -427,6 +454,14 @@ class LocalLLMProvider:
                     )
 
         return "\n".join(results) if results else ""
+
+    def _is_tool_available(self, tool_name: str) -> bool:
+        """Check if a tool is available based on current probes."""
+        return self._tool_availability.get(tool_name, False)
+
+    def _tool_unavailable_message(self, tool_name: str, action: str, reason: str) -> str:
+        """Generate a standardized unavailable message."""
+        return f"I can't {action} right now because {reason}."
 
     async def _run_rag_query(self, prompt: str, k: int = 5) -> str:
         """Query RAG for relevant document context.
