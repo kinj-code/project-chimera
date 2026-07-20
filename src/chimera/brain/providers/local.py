@@ -312,6 +312,18 @@ class LocalLLMProvider:
         results: list[str] = []
         lower = prompt.lower()
 
+        # Anti-hallucination: detect real-time / future questions.
+        realtime_keywords = [
+            "won", "winner", "result", "score", "election", "news",
+            "2025", "2026", "happened in 2025", "happened in 2026",
+            "latest", "current event", "this year",
+        ]
+        if any(kw in lower for kw in realtime_keywords):
+            results.append(
+                "WARNING: This is a real-time question. You do NOT have this information. "
+                "Tell the user your knowledge cutoff is 2024."
+            )
+
         # Time tool: inject real time if user asks.
         time_keywords = ["time", "clock", "what time", "current time"]
         if any(kw in lower for kw in time_keywords):
@@ -351,7 +363,7 @@ class LocalLLMProvider:
                 except Exception:
                     pass
 
-        # Process list — with formatting hint so LLM summarizes nicely.
+        # Process list — list ALL, do NOT truncate.
         process_keywords = [
             "apps", "running", "processes", "programs", "applications",
         ]
@@ -359,8 +371,9 @@ class LocalLLMProvider:
             logger.info("Tool: listing processes")
             proc_list = await self._os.list_processes()  # type: ignore[union-attr]
             results.append(
-                f"The user asked what apps are running. Here is the list: "
-                f"{proc_list}. Please summarize this list for the user."
+                f"SYSTEM CONTEXT — Running processes: {proc_list}. "
+                f"The user asked what apps are running. List ALL of them. "
+                f"Do NOT summarize — list each one."
             )
 
         # App launch.
