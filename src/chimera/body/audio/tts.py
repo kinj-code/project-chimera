@@ -1,7 +1,7 @@
-"""VoiceManager — neural TTS using Piper Python API (local, offline).
+"""VoiceManager — neural TTS using Piper Python API + simpleaudio playback.
 
-Uses piper-tts package's PiperVoice class for synthesis.
-Voice model (.onnx) expected in assets/voices/.
+Uses piper-tts for synthesis. Plays via simpleaudio (cross-platform).
+Falls back to ffplay or aplay if simpleaudio fails.
 
 Author: Project Chimera Engineering Team
 """
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 class VoiceManager:
-    """Manages text-to-speech output via Piper TTS + ffplay."""
+    """Manages TTS output via Piper + simpleaudio / ffplay."""
 
     DEFAULT_VOICE = "en_US-lessac-medium"
     VOICE_DIR = Path("assets/voices")
@@ -69,30 +69,62 @@ class VoiceManager:
         await asyncio.to_thread(self._speak_blocking, text)
 
     def _speak_blocking(self, text: str) -> None:
+        """Synthesize WAV with Piper and play via simpleaudio or ffplay."""
         tmp_path: str | None = None
         try:
-            import subprocess as sp
-
+            # 1. Synthesize to temp WAV.
             tmp_fd, tmp_path = tempfile.mkstemp(suffix=".wav", prefix="chimera-piper-")
             os.close(tmp_fd)
 
             if self._voice is None:
                 return
 
-            # synthesize_wav requires an open wave.Wave_write object.
             with wave.open(tmp_path, "wb") as wav_file:
                 self._voice.synthesize_wav(text, wav_file)
 
             if os.path.getsize(tmp_path) == 0:
                 raise RuntimeError("Piper generated empty audio")
 
-            sp.run(
-                ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", tmp_path],
-                timeout=30,
-                capture_output=True,
-            )
-        except FileNotFoundError:
-            logger.warning("[VOICE FAILED] ffplay not found.")
+            # 2. Play via simpleaudio (preferred, non-blocking).
+            try:
+                import simpleaudio
+
+                with wave.open(tmp_path, "rb") as wf:
+                    audio_data = wf.readframes(wf.getnframes())
+                    params = wf.getparams()
+
+                play_obj = simpleaudio.play_buffer(
+                    audio_data,
+                    num_channels=params.nchannels,
+                    bytes_per_sample=params.sampwidth,
+                    sample_rate=params.framerate,
+                )
+                play_obj.wait_done()
+                return
+            except Exception:
+                pass  # Fall through to ffplay.
+
+            # 3. Fall back to ffplay.
+            try:
+                subprocess.run(
+                    ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", tmp_path],
+                    timeout=15,
+                    capture_output=True,
+                )
+                return
+            except subprocess.TimeoutExpired:
+                pass
+
+            # 4. Last resort: aplay (Linux).
+            try:
+                subprocess.run(
+                    ["aplay", tmp_path],
+                    timeout=15,
+                    capture_output=True,
+                )
+            except Exception:
+                pass
+
         except Exception as exc:
             logger.warning(f"[VOICE FAILED] {exc}")
         finally:

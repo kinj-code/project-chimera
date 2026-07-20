@@ -200,7 +200,7 @@ class RAGManager:
 
     @staticmethod
     def _parse_pdf(path: Path) -> str:
-        """Extract text from a PDF file."""
+        """Extract text from a PDF file. Tries pypdf first, then pdfminer."""
         try:
             from pypdf import PdfReader
 
@@ -211,9 +211,17 @@ class RAGManager:
                 if text:
                     pages.append(text)
             return "\n".join(pages)
-        except ImportError:
-            logger.error("pypdf not installed. Cannot parse PDF files.")
-            return ""
+        except Exception as exc:
+            logger.warning(f"pypdf failed ({exc}), trying pdfminer fallback...")
+            try:
+                from pdfminer.high_level import extract_text as pdfminer_extract
+                return pdfminer_extract(str(path))
+            except ImportError:
+                logger.error("pdfminer not installed. Cannot parse PDF files.")
+                return ""
+            except Exception as exc2:
+                logger.error(f"Both PDF parsers failed: {exc2}")
+                return ""
 
     @staticmethod
     def _parse_docx(path: Path) -> str:

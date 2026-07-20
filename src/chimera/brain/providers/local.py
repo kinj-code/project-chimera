@@ -113,7 +113,8 @@ class LocalLLMProvider:
         """Update the system prompt persona.
 
         Args:
-            persona: One of "Friendly", "Sarcastic", "Professional".
+            persona: One of "Friendly", "Sarcastic", "Professional",
+                     or a custom persona string.
         """
         self._persona = persona
         logger.info(f"Persona set to: {persona}")
@@ -189,15 +190,18 @@ class LocalLLMProvider:
         os_context = await self._run_os_tools(prompt_text)
 
         # Build the Qwen2 chat template prompt with active persona.
-        persona_hints = {
-            "Friendly": "Be warm, encouraging, and supportive.",
-            "Sarcastic": "Be witty and slightly sarcastic. Use dry humor. Don't be mean.",
-            "Professional": "Be formal, precise, and helpful. Avoid casual language.",
+        custom_personas = {
+            "Friendly": "You are Chimera. You are upbeat, friendly, and use emojis occasionally.",
+            "Sarcastic": "You are Chimera. You are highly sarcastic, witty, and a bit snarky. You still help, but with an attitude.",
+            "Professional": "You are Chimera. You are strictly professional, concise, and formal. No jokes.",
         }
-        persona_instruction = persona_hints.get(self._persona, persona_hints["Friendly"])
+        # If persona isn't one of the 3 presets, treat it as a custom instruction.
+        if self._persona in custom_personas:
+            persona_instruction = custom_personas[self._persona]
+        else:
+            persona_instruction = f"You are Chimera. {self._persona}"
 
         base_prompt = (
-            f"You are Chimera, a {self._persona.lower()} desktop companion. "
             f"{persona_instruction} "
             "You CAN see the user's screen via OCR text extraction when asked. "
             "You CAN list running applications. You CAN open apps. "
@@ -301,6 +305,13 @@ class LocalLLMProvider:
         results: list[str] = []
         lower = prompt.lower()
 
+        # Time tool: inject real time if user asks.
+        time_keywords = ["time", "clock", "what time", "current time"]
+        if any(kw in lower for kw in time_keywords):
+            from datetime import datetime
+            now = datetime.now().strftime("%I:%M %p")
+            results.append(f"The current time is {now}.")
+
         # Screen OCR keywords.
         screen_keywords = [
             "screen", "see", "display", "what's on my", "looking at",
@@ -333,14 +344,17 @@ class LocalLLMProvider:
                 except Exception:
                     pass
 
-        # Process list.
+        # Process list — with formatting hint so LLM summarizes nicely.
         process_keywords = [
             "apps", "running", "processes", "programs", "applications",
         ]
         if any(kw in lower for kw in process_keywords):
             logger.info("Tool: listing processes")
             proc_list = await self._os.list_processes()  # type: ignore[union-attr]
-            results.append(proc_list)
+            results.append(
+                f"The user asked what apps are running. Here is the list: "
+                f"{proc_list}. Please summarize this list for the user."
+            )
 
         # App launch.
         launch_keywords = ["open ", "launch "]
@@ -351,7 +365,9 @@ class LocalLLMProvider:
                 if app_name:
                     logger.info(f"Tool: launching {app_name}")
                     launch_result = await self._os.launch_application(app_name)  # type: ignore[union-attr]
-                    results.append(launch_result)
+                    results.append(
+                        f"App launch result for '{app_name}': {launch_result}"
+                    )
 
         return "\n".join(results) if results else ""
 

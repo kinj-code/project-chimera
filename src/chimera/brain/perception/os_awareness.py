@@ -37,17 +37,17 @@ class OSAwarenessManager:
         "kerneloops", "irqbalance", "rtkit-daemon", "upowerd",
     }
 
-    # Common app name → executable mapping.
-    _APP_LAUNCHERS: dict[str, str] = {
-        "notepad": "gedit",
-        "calculator": "gnome-calculator",
-        "browser": "firefox",
-        "explorer": "nautilus",
-        "terminal": "gnome-terminal",
-        "settings": "gnome-control-center",
-        "files": "nautilus",
-        "text editor": "gedit",
-        "code": "code",
+    # Common app name → executable mapping (with fallbacks).
+    _APP_LAUNCHERS: dict[str, list[str]] = {
+        "notepad": ["gedit", "gnome-text-editor", "mousepad", "kate", "nano"],
+        "calculator": ["gnome-calculator", "mate-calc", "kcalc"],
+        "browser": ["firefox", "chromium-browser", "google-chrome"],
+        "explorer": ["nautilus", "nemo", "thunar", "dolphin"],
+        "terminal": ["gnome-terminal", "xterm", "konsole", "xfce4-terminal"],
+        "settings": ["gnome-control-center", "systemsettings"],
+        "files": ["nautilus", "nemo", "thunar"],
+        "text editor": ["gedit", "gnome-text-editor", "mousepad"],
+        "code": ["code", "code-oss"],
     }
 
     def __init__(self) -> None:
@@ -175,23 +175,27 @@ class OSAwarenessManager:
 
     def _launch_blocking(self, app_name: str) -> str:
         """Launch an application by name. Runs in a background thread."""
-        executable = self._APP_LAUNCHERS.get(app_name.lower(), app_name.lower())
+        candidates = self._APP_LAUNCHERS.get(
+            app_name.lower(), [app_name.lower()]
+        )
 
-        try:
-            subprocess.Popen(
-                [executable],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,  # detach from parent
-            )
-            logger.info(f"Launched application: {app_name} ({executable})")
-            return f"✅ Opened {app_name}."
-        except FileNotFoundError:
-            logger.warning(f"Application not found: {executable}")
-            return f"❌ Could not find '{app_name}'. Try installing it first."
-        except Exception as exc:
-            logger.error(f"Failed to launch {app_name}: {exc}")
-            return f"❌ Failed to open {app_name}: {exc}"
+        for executable in candidates:
+            try:
+                subprocess.Popen(
+                    [executable],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                logger.info(f"Launched {app_name} via {executable}")
+                return f"✅ Opened {app_name}."
+            except FileNotFoundError:
+                continue  # Try next candidate.
+            except Exception as exc:
+                logger.error(f"Failed to launch {app_name}: {exc}")
+                return f"❌ Failed to open {app_name}: {exc}"
+
+        return f"❌ Could not find '{app_name}'. Try installing it first."
 
     # ------------------------------------------------------------------
     # Helpers
