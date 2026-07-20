@@ -178,18 +178,32 @@ class LocalLLMProvider:
 
         logger.info(f"LLM input: '{prompt_text}'")
 
+        # --- RAG gating: only query RAG if the user seems to be asking about documents ---
+        rag_keywords = ["document", "file", "pdf", "summarize", "what is this",
+                        "doc", "txt", "read", "ingest", "uploaded", "dropped"]
+        rag_context = ""
+        if any(kw in prompt_text.lower() for kw in rag_keywords):
+            rag_context = await self._run_rag_query(prompt_text)
+
         # --- Tool calling: intercept user intent before LLM generation ---
         os_context = await self._run_os_tools(prompt_text)
-        rag_context = await self._run_rag_query(prompt_text)
 
-        # Build the Qwen2 chat template prompt.
+        # Build the Qwen2 chat template prompt with active persona.
+        persona_hints = {
+            "Friendly": "Be warm, encouraging, and supportive.",
+            "Sarcastic": "Be witty and slightly sarcastic. Use dry humor. Don't be mean.",
+            "Professional": "Be formal, precise, and helpful. Avoid casual language.",
+        }
+        persona_instruction = persona_hints.get(self._persona, persona_hints["Friendly"])
+
         base_prompt = (
-            "You are Chimera, a friendly desktop companion. "
+            f"You are Chimera, a {self._persona.lower()} desktop companion. "
+            f"{persona_instruction} "
             "You CAN see the user's screen via OCR text extraction when asked. "
             "You CAN list running applications. You CAN open apps. "
             "Use the provided context to answer accurately. "
             "If context is provided for a question about the screen or processes, use it. "
-            "Keep responses under 2 sentences. Be warm, concise, and helpful."
+            "Keep responses under 2 sentences."
         )
         # Layer: OS context first (highest priority), then RAG context.
         combined_context = ""
@@ -287,21 +301,48 @@ class LocalLLMProvider:
         results: list[str] = []
         lower = prompt.lower()
 
-        # Screen OCR: "screen", "see", "what's on my", "display"
-        screen_keywords = ["screen", "see", "display", "what's on my", "looking at"]
+        # Screen OCR keywords.
+        screen_keywords = [
+            "screen", "see", "display", "what's on my", "looking at",
+            "read my screen", "what does my screen say", "scan my display",
+        ]
         if any(kw in lower for kw in screen_keywords):
             logger.info("Tool: capturing screen OCR")
             screen_text = await self._os.capture_screen()  # type: ignore[union-attr]
             results.append(f"Screen text (OCR):\n{screen_text}")
 
-        # Process list: "apps", "running", "processes", "programs"
-        process_keywords = ["apps", "running", "processes", "programs", "applications"]
+        # File system keywords.
+        fs_keywords = [
+            "folder", "directory", "files in", "downloads", "desktop",
+            "documents", "list items", "what's in my",
+        ]
+        if any(kw in lower for kw in fs_keywords):
+            import os as _os
+            target_dir = None
+            if "download" in lower:
+                target_dir = _os.path.expanduser("~/Downloads")
+            elif "desktop" in lower:
+                target_dir = _os.path.expanduser("~/Desktop")
+            elif "document" in lower:
+                target_dir = _os.path.expanduser("~/Documents")
+            if target_dir and _os.path.isdir(target_dir):
+                try:
+                    items = _os.listdir(target_dir)[:20]
+                    item_list = ", ".join(items)
+                    results.append(f"Contents of {target_dir}: {item_list}")
+                except Exception:
+                    pass
+
+        # Process list.
+        process_keywords = [
+            "apps", "running", "processes", "programs", "applications",
+        ]
         if any(kw in lower for kw in process_keywords):
             logger.info("Tool: listing processes")
             proc_list = await self._os.list_processes()  # type: ignore[union-attr]
             results.append(proc_list)
 
-        # App launch: "open ", "launch "
+        # App launch.
         launch_keywords = ["open ", "launch "]
         for kw in launch_keywords:
             if kw in lower:

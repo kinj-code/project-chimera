@@ -60,6 +60,13 @@ class FileProcessor:
             # Run ingestion in background thread.
             try:
                 result = await self._rag.ingest_file(file_path)  # type: ignore[union-attr]
+                # If result indicates unsupported file type, give helpful guidance.
+                if "unsupported" in result.lower() or "could not" in result.lower():
+                    result = (
+                        f"⚠️ I can't read .{filename.split('.')[-1] if '.' in filename else '?'} "
+                        f"files yet. I support PDF, DOCX, and TXT files. "
+                        f"Try dropping a text document!"
+                    )
             except Exception as exc:
                 logger.error(f"Ingestion failed for {file_path}: {exc}")
                 result = f"❌ Failed to process {filename}"
