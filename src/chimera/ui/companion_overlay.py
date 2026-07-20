@@ -1,7 +1,7 @@
-"""CompanionOverlay — a frameless, always-on-top window that reacts to Brain events.
+"""CompanionOverlay — a frameless, always-on-top character window with painted face.
 
-Subscribes to MoodChange on the EventBus. When the mood becomes HAPPY,
-the background shifts from gray to green for 2 seconds, then fades back.
+The face is drawn with QPainter. Two expressions: IDLE (neutral) and HAPPY (smiling).
+MoodChange events trigger the expression switch.
 
 Author: Project Chimera Engineering Team
 """
@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QPoint
+from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath, QFont
 from PySide6.QtWidgets import QWidget
 
 from chimera.bridge.events import Emotion, MoodChange
@@ -21,143 +22,193 @@ if TYPE_CHECKING:
 
 
 class CompanionOverlay(QWidget):
-    """A transparent, frameless overlay window that visually represents the companion.
+    """A frameless overlay with a painted robot character face."""
 
-    Positioned at the bottom-right of the screen. Reacts to MoodChange events
-    by changing its background color.
-    """
+    SIZE = 220
+    PADDING = 16
 
-    NEUTRAL_COLOR = "#444444"  # dark gray
-    HAPPY_COLOR = "#22aa44"  # green
-    SIZE = 200
+    # Colors
+    BG_NEUTRAL = QColor(52, 53, 65)       # dark gray
+    BG_HAPPY = QColor(46, 160, 67)         # green
+    EYE_COLOR = QColor(255, 255, 255)
+    MOUTH_COLOR = QColor(255, 255, 255)
+    ANTENNA_COLOR = QColor(255, 180, 50)
+    BORDER_IDLE = QColor(255, 255, 255, 80)
+    BORDER_ACTIVE = QColor(255, 255, 255, 255)
 
     def __init__(self) -> None:
         super().__init__()
-        self._revert_timer: QTimer | None = None
+        self._current_emotion: Emotion = Emotion.NEUTRAL
         self._pulse_timer: QTimer | None = None
-        self._pulse_phase: float = 0.0  # 0→1→0 cycle
+        self._pulse_phase: float = 0.0
+        self._bg_color = self.BG_NEUTRAL
+        self._target_bg = self.BG_NEUTRAL
 
         self._setup_ui()
         self._position()
         self._start_pulse()
 
     def attach(self, bus: EventBus) -> None:
-        """Subscribe to MoodChange events on the event bus.
-
-        Must be called after the bus is started.
-
-        Args:
-            bus: The running EventBus instance.
-        """
+        """Subscribe to MoodChange events."""
         bus.subscribe(MoodChange, self.on_mood_change)  # type: ignore[arg-type]
         logger.info("CompanionOverlay attached to EventBus (MoodChange)")
 
+    # ------------------------------------------------------------------
+    # Setup
+    # ------------------------------------------------------------------
+
+    def _setup_ui(self) -> None:
+        self.setWindowTitle("Chimera Companion")
+        self.setFixedSize(self.SIZE, self.SIZE)
+        self.setWindowFlags(
+            Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        )
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+
+    def _position(self) -> None:
+        screen = self.screen()
+        if screen is None:
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app is not None and app.primaryScreen() is not None:
+                screen = app.primaryScreen()
+        if screen is not None:
+            geom = screen.availableGeometry()
+            self.move(
+                geom.right() - self.SIZE - 24,
+                geom.bottom() - self.SIZE - 24,
+            )
+
+    # ------------------------------------------------------------------
+    # Pulse animation
+    # ------------------------------------------------------------------
+
     def _start_pulse(self) -> None:
-        """Start the idle pulsing border animation timer."""
-        self._pulse_timer = QTimer(self)
-        self._pulse_timer.timeout.connect(self._tick_pulse)
-        self._pulse_timer.start(100)  # 100ms granularity for smooth animation
+        if self._pulse_timer is None:
+            self._pulse_timer = QTimer(self)
+            self._pulse_timer.timeout.connect(self._tick_pulse)
+        self._pulse_timer.start(100)
 
     def _stop_pulse(self) -> None:
-        """Stop and clear the pulsing animation timer."""
         if self._pulse_timer is not None:
             self._pulse_timer.stop()
             self._pulse_timer = None
 
     def _tick_pulse(self) -> None:
-        """Advance the pulse phase and update the border opacity.
-
-        Phase oscillates 0 → 1 → 0 over 1.5 seconds (1500ms).
-        At phase 0: opacity 0.5. At phase 1: opacity 1.0.
-        """
-        self._pulse_phase += 0.1 / 1.5  # 100ms tick / 1500ms full cycle
+        self._pulse_phase += 0.1 / 1.5
         if self._pulse_phase > 1.0:
             self._pulse_phase = 0.0
+        self.update()
 
-        # Triangle wave: rise 0→1, fall 1→0.
-        if self._pulse_phase <= 0.5:
-            opacity = 0.5 + self._pulse_phase  # 0.5→1.0
-        else:
-            opacity = 1.5 - self._pulse_phase  # 1.0→0.5
-
-        self.setStyleSheet(
-            f"background-color: {self.NEUTRAL_COLOR}; "
-            f"border-radius: 20px; "
-            f"border: 2px solid rgba(255, 255, 255, {opacity:.2f});"
-        )
-
-    def _setup_ui(self) -> None:
-        """Configure the window flags, attributes, and layout."""
-        self.setWindowTitle("Chimera Companion")
-        self.setFixedSize(self.SIZE, self.SIZE)
-
-        # Frameless, always-on-top, tool window (no taskbar entry).
-        self.setWindowFlags(
-            Qt.FramelessWindowHint
-            | Qt.WindowStaysOnTopHint
-            | Qt.Tool
-        )
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-
-        # Apply the initial neutral style.
-        self._apply_style(self.NEUTRAL_COLOR)
-
-    def _position(self) -> None:
-        """Place the overlay at the bottom-right of the primary screen."""
-        screen = self.screen()
-        if screen is None:
-            from PySide6.QtWidgets import QApplication
-
-            app = QApplication.instance()
-            if app is not None and app.primaryScreen() is not None:
-                screen = app.primaryScreen()
-
-        if screen is not None:
-            geom = screen.availableGeometry()
-            self.move(
-                geom.right() - self.SIZE - 20,
-                geom.bottom() - self.SIZE - 20,
-            )
-
-    def _apply_style(self, color: str) -> None:
-        """Set the widget's background color via stylesheet."""
-        self.setStyleSheet(
-            f"background-color: {color}; "
-            f"border-radius: 20px; "
-            f"border: 2px solid rgba(255, 255, 255, 0.3);"
-        )
+    # ------------------------------------------------------------------
+    # Mood handling
+    # ------------------------------------------------------------------
 
     async def on_mood_change(self, event: MoodChange) -> None:
-        """Handle a MoodChange event from the Brain.
-
-        When HAPPY is detected: stop pulsing, flash green for 2 seconds,
-        then resume pulsing. All other emotions revert to neutral+pulse.
-
-        Args:
-            event: The MoodChange event from the EventBus.
-        """
+        self._current_emotion = event.current
         if event.current == Emotion.HAPPY:
-            # Stop pulsing during the happy flash.
-            self._stop_pulse()
-
-            # Switch to green.
-            self._apply_style(self.HAPPY_COLOR)
-
-            # Cancel any existing revert timer.
-            if self._revert_timer is not None:
-                self._revert_timer.stop()
-
-            # Schedule a reversion to neutral after 2 seconds.
-            self._revert_timer = QTimer(self)
-            self._revert_timer.setSingleShot(True)
-            self._revert_timer.timeout.connect(self._revert_to_neutral)
-            self._revert_timer.start(2000)
+            self._bg_color = self.BG_HAPPY
+            QTimer.singleShot(2500, self._revert_to_neutral)
         else:
-            self._apply_style(self.NEUTRAL_COLOR)
+            self._revert_to_neutral()
 
     def _revert_to_neutral(self) -> None:
-        """Revert the overlay background to neutral and resume pulsing."""
-        self._apply_style(self.NEUTRAL_COLOR)
-        self._revert_timer = None
-        # Resume the subtle idle pulse animation.
-        self._start_pulse()
+        self._current_emotion = Emotion.NEUTRAL
+        self._bg_color = self.BG_NEUTRAL
+        self.update()
+
+    # ------------------------------------------------------------------
+    # Painting
+    # ------------------------------------------------------------------
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        center = QPoint(self.SIZE // 2, self.SIZE // 2)
+        face_radius = self.SIZE // 2 - self.PADDING
+
+        # --- Background circle ---
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(self._bg_color))
+        painter.drawEllipse(center, face_radius, face_radius)
+
+        # --- Pulsing border ---
+        if self._current_emotion == Emotion.NEUTRAL:
+            if self._pulse_phase <= 0.5:
+                opacity = int(80 + self._pulse_phase * 2 * 175)  # 80 → 255
+            else:
+                opacity = int(255 - (self._pulse_phase - 0.5) * 2 * 175)
+            border_color = QColor(255, 255, 255, max(30, min(255, opacity)))
+        else:
+            border_color = self.BORDER_ACTIVE
+
+        pen = QPen(border_color, 3)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(center, face_radius, face_radius)
+
+        # --- Antenna ---
+        painter.setPen(QPen(self.ANTENNA_COLOR, 3))
+        painter.drawLine(
+            center.x(), center.y() - face_radius + 6,
+            center.x(), center.y() - face_radius - 8,
+        )
+        painter.setBrush(QBrush(self.ANTENNA_COLOR))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(
+            QPoint(center.x(), center.y() - face_radius - 12), 5, 5
+        )
+
+        # --- Eyes ---
+        eye_size = 14
+        eye_y = center.y() - 18
+        left_eye_x = center.x() - 28
+        right_eye_x = center.x() + 28
+
+        # Draw eyes
+        painter.setBrush(QBrush(self.EYE_COLOR))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(QPoint(left_eye_x, eye_y), eye_size, eye_size)
+        painter.drawEllipse(QPoint(right_eye_x, eye_y), eye_size, eye_size)
+
+        # Pupils
+        pupil_size = 5
+        painter.setBrush(QBrush(self._bg_color))
+        painter.drawEllipse(QPoint(left_eye_x + 2, eye_y), pupil_size, pupil_size)
+        painter.drawEllipse(QPoint(right_eye_x + 2, eye_y), pupil_size, pupil_size)
+
+        # Eye shine
+        shine_size = 3
+        painter.setBrush(QBrush(QColor(255, 255, 255)))
+        painter.drawEllipse(QPoint(left_eye_x + 2, eye_y - 4), shine_size, shine_size)
+        painter.drawEllipse(QPoint(right_eye_x + 2, eye_y - 4), shine_size, shine_size)
+
+        # --- Mouth ---
+        mouth_y = center.y() + 26
+        painter.setPen(QPen(self.MOUTH_COLOR, 2.5))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        if self._current_emotion == Emotion.HAPPY:
+            # Smiling mouth — a wide arc / smile curve.
+            path = QPainterPath()
+            path.moveTo(center.x() - 26, mouth_y)
+            path.quadTo(center.x(), mouth_y + 18, center.x() + 26, mouth_y)
+            painter.drawPath(path)
+        else:
+            # Neutral mouth — a small straight line.
+            painter.drawLine(
+                center.x() - 12, mouth_y,
+                center.x() + 12, mouth_y,
+            )
+
+        # --- Blush circles (when HAPPY) ---
+        if self._current_emotion == Emotion.HAPPY:
+            blush = QColor(255, 120, 120, 100)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(blush))
+            blush_y = center.y() + 4
+            painter.drawEllipse(QPoint(left_eye_x - 10, blush_y), 10, 8)
+            painter.drawEllipse(QPoint(right_eye_x + 10, blush_y), 10, 8)
+
+        painter.end()

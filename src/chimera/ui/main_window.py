@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QAction
 from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
@@ -30,12 +30,20 @@ if TYPE_CHECKING:
 class MainWindow(QMainWindow):
     """The primary application window with chat input and log."""
 
+    # Settings callback — set by main.py after construction.
+    on_settings_requested: callable | None = None
+    # Reference to LLM provider for settings changes.
+    llm_provider: object | None = None
+    # Reference to VoiceManager for settings changes.
+    voice_manager: object | None = None
+
     def __init__(self, bus: EventBus) -> None:
         super().__init__()
         self._bus = bus
 
         self._setup_ui()
         self._setup_bus()
+        self._setup_menu()
 
     def _setup_ui(self) -> None:
         """Create and arrange the UI widgets."""
@@ -77,6 +85,48 @@ class MainWindow(QMainWindow):
     def _setup_bus(self) -> None:
         """Subscribe to SpeakRequest events from the Brain."""
         self._bus.subscribe(SpeakRequest, self._on_speak_request)  # type: ignore[arg-type]
+
+    def _setup_menu(self) -> None:
+        """Add a Settings action to the menu bar."""
+        menu_bar = self.menuBar()
+        menu_bar.setStyleSheet(
+            "QMenuBar { background-color: #1a1a1a; color: #ccc; } "
+            "QMenuBar::item:selected { background-color: #333; }"
+        )
+
+        file_menu = menu_bar.addMenu("&File")
+
+        settings_action = QAction("Settings...", self)
+        settings_action.triggered.connect(self._on_open_settings)
+        file_menu.addAction(settings_action)
+
+        file_menu.addSeparator()
+
+        quit_action = QAction("Quit", self)
+        quit_action.triggered.connect(self.close)
+        file_menu.addAction(quit_action)
+
+    def _on_open_settings(self) -> None:
+        """Open the SettingsDialog and apply changes."""
+        from chimera.ui.settings.settings_dialog import SettingsDialog
+
+        dlg = SettingsDialog(
+            parent=self,
+            current_persona=getattr(self.llm_provider, '_persona', 'Friendly'),
+            current_temperature=getattr(self.llm_provider, '_temperature', 0.8),
+            voice_enabled=getattr(self.voice_manager, '_enabled', True),
+        )
+        if dlg.exec() == dlg.DialogCode.Accepted:
+            # Apply persona.
+            if self.llm_provider and hasattr(self.llm_provider, 'set_persona'):
+                self.llm_provider.set_persona(dlg.persona)
+            # Apply temperature.
+            if self.llm_provider and hasattr(self.llm_provider, 'set_temperature'):
+                self.llm_provider.set_temperature(dlg.temperature)
+            # Apply voice.
+            if self.voice_manager and hasattr(self.voice_manager, 'set_enabled'):
+                self.voice_manager.set_enabled(dlg.voice_enabled)
+            self._append_to_log("System", "Settings updated.")
 
     # ------------------------------------------------------------------
     # Event handlers
