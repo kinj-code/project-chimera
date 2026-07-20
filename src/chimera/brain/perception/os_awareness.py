@@ -179,18 +179,28 @@ class OSAwarenessManager:
             app_name.lower(), [app_name.lower()]
         )
 
-        for executable in candidates:
+        # Also try xdg-open as first attempt for anything.
+        all_candidates = ["xdg-open"] + list(candidates)
+        for executable in all_candidates:
             try:
-                subprocess.Popen(
-                    [executable],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
+                if executable == "xdg-open":
+                    subprocess.Popen(
+                        ["xdg-open", app_name],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+                else:
+                    subprocess.Popen(
+                        [executable],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
                 logger.info(f"Launched {app_name} via {executable}")
                 return f"✅ Opened {app_name}."
             except FileNotFoundError:
-                continue  # Try next candidate.
+                continue
             except Exception as exc:
                 logger.error(f"Failed to launch {app_name}: {exc}")
                 return f"❌ Failed to open {app_name}: {exc}"

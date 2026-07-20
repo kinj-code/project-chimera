@@ -119,22 +119,25 @@ class RAGManager:
         if not chunks:
             return f"❌ No content to index in {file_path.name}"
 
-        # 3. Generate IDs.
+        # 3. Generate IDs with timestamp for uniqueness.
+        import time as _time
         doc_id = file_path.stem.replace(" ", "_")
-        ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
-        metadatas = [{"source": str(file_path), "chunk": i} for i in range(len(chunks))]
+        ts = int(_time.time())
+        ids = [f"{doc_id}_{ts}_{i}" for i in range(len(chunks))]
+        metadatas = [{"source": str(file_path), "chunk": i, "file": file_path.name} for i in range(len(chunks))]
 
-        # 4. Upsert into ChromaDB.
-        try:
-            self._collection.upsert(
-                ids=ids,
-                documents=chunks,
-                metadatas=metadatas,
-            )
-            logger.info(f"Ingested '{file_path.name}': {len(chunks)} chunks.")
-        except Exception as exc:
-            logger.error(f"ChromaDB upsert failed: {exc}")
-            return f"❌ Failed to index {file_path.name}"
+        # 4. Upsert into ChromaDB (thread-safe).
+        with self._lock:
+            try:
+                self._collection.upsert(
+                    ids=ids,
+                    documents=chunks,
+                    metadatas=metadatas,
+                )
+                logger.info(f"Ingested '{file_path.name}': {len(chunks)} chunks.")
+            except Exception as exc:
+                logger.error(f"ChromaDB upsert failed: {exc}")
+                return f"❌ Failed to index {file_path.name}"
 
         return f"✅ Indexed {file_path.name} ({len(chunks)} chunks). Ask me anything!"
 
@@ -155,21 +158,22 @@ class RAGManager:
         if not self._ready or self._collection is None:
             return ""
 
-        if self._collection.count() == 0:
-            return ""
-
-        try:
-            results = self._collection.query(
-                query_texts=[query_text],
-                n_results=min(k, self._collection.count()),
-            )
-            docs = results.get("documents", [[]])[0]
-            if not docs:
+        with self._lock:
+            if self._collection.count() == 0:
                 return ""
-            return "\n\n---\n\n".join(docs)
-        except Exception as exc:
-            logger.error(f"RAG query failed: {exc}")
-            return ""
+
+            try:
+                results = self._collection.query(
+                    query_texts=[query_text],
+                    n_results=min(k, self._collection.count()),
+                )
+                docs = results.get("documents", [[]])[0]
+                if not docs:
+                    return ""
+                return "\n\n---\n\n".join(docs)
+            except Exception as exc:
+                logger.error(f"RAG query failed: {exc}")
+                return ""
 
     def get_document_count(self) -> int:
         """Return the number of stored document chunks."""
@@ -182,18 +186,32 @@ class RAGManager:
     # ------------------------------------------------------------------
 
     def _parse_file(self, file_path: Path) -> str:
-        """Parse a file based on its extension."""
+        """Parse a file based on its extension. Supports 10+ formats."""
         suffix = file_path.suffix.lower()
-        try:
-            if suffix == ".txt":
-                return file_path.read_text(encoding="utf-8")
-            elif suffix == ".pdf":
-                return self._parse_pdf(file_path)
-            elif suffix == ".docx":
-                return self._parse_docx(file_path)
-            else:
-                logger.warning(f"Unsupported file type: {suffix}")
+        parsers = {
+            ".txt": lambda p: p.read_text(encoding="utf-8", errors="replace"),
+            ".md": lambda p: p.read_text(encoding="utf-8", errors="replace"),
+            ".json": lambda p: p.read_text(encoding="utf-8", errors="replace"),
+            ".xml": lambda p: p.read_text(encoding="utf-8", errors="replace"),
+            ".html": self._parse_html,
+            ".htm": self._parse_html,
+            ".csv": self._parse_csv,
+            ".pdf": self._parse_pdf,
+            ".docx": self._parse_docx,
+            ".pptx": self._parse_pptx,
+            ".xlsx": self._parse_xlsx,
+            ".rtf": self._parse_rtf,
+            ".epub": self._parse_epub,
+        }
+        parser = parsers.get(suffix)
+        if parser is None:
+            logger.warning(f"Unsupported file type: {suffix} — attempting plain text read.")
+            try:
+                return file_path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
                 return ""
+        try:
+            return parser(file_path)
         except Exception as exc:
             logger.error(f"Failed to parse {file_path}: {exc}")
             return ""
@@ -228,10 +246,68 @@ class RAGManager:
         """Extract text from a DOCX file."""
         try:
             import docx2txt
-
             return docx2txt.process(str(path))
         except ImportError:
-            logger.error("docx2txt not installed. Cannot parse DOCX files.")
+            logger.error("docx2txt not installed.")
+            return ""
+
+    @staticmethod
+    def _parse_html(path: Path) -> str:
+        try:
+            from bs4 import BeautifulSoup
+            return BeautifulSoup(path.read_text(encoding="utf-8", errors="replace"), "html.parser").get_text()
+        except ImportError:
+            return path.read_text(encoding="utf-8", errors="replace")
+
+    @staticmethod
+    def _parse_csv(path: Path) -> str:
+        return path.read_text(encoding="utf-8", errors="replace")
+
+    @staticmethod
+    def _parse_pptx(path: Path) -> str:
+        try:
+            from pptx import Presentation
+            prs = Presentation(str(path))
+            return "\n".join(slide_text(shape) for slide in prs.slides for shape in slide.shapes if hasattr(shape, "text"))
+        except ImportError:
+            logger.error("python-pptx not installed.")
+            return ""
+        def slide_text(shape):
+            return shape.text
+
+    @staticmethod
+    def _parse_xlsx(path: Path) -> str:
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(str(path), read_only=True)
+            rows = []
+            for ws in wb.worksheets:
+                for row in ws.iter_rows(values_only=True):
+                    rows.append(" ".join(str(c) for c in row if c))
+            return "\n".join(rows)
+        except ImportError:
+            logger.error("openpyxl not installed.")
+            return ""
+
+    @staticmethod
+    def _parse_rtf(path: Path) -> str:
+        try:
+            from striprtf.striprtf import rtf_to_text
+            return rtf_to_text(path.read_text(encoding="utf-8", errors="replace"))
+        except ImportError:
+            return path.read_text(encoding="utf-8", errors="replace")
+
+    @staticmethod
+    def _parse_epub(path: Path) -> str:
+        try:
+            from ebooklib import epub
+            book = epub.read_epub(str(path))
+            docs = []
+            for item in book.get_items_of_type(9):  # ITEM_DOCUMENT = 9
+                from bs4 import BeautifulSoup
+                docs.append(BeautifulSoup(item.get_content().decode("utf-8", errors="replace"), "html.parser").get_text())
+            return "\n".join(docs)
+        except ImportError:
             return ""
 
     # ------------------------------------------------------------------

@@ -97,10 +97,25 @@ class LocalLLMProvider:
         asyncio.create_task(self._send_welcome())
 
     async def _send_welcome(self) -> None:
-        """Send a welcome message 2 seconds after launch."""
+        """Send a random welcome message 2 seconds after launch."""
+        import random
+        greetings = [
+            "Hey there! What's on your mind?",
+            "Ready when you are! What's up?",
+            "Good to see you! How can I help?",
+            "Hey! Drop a file or ask me anything.",
+            "I'm here! What are we working on?",
+            "Let's get started! What do you need?",
+            "At your service! What can I do for you?",
+            "Hey hey! What's the word?",
+            "I'm all ears! What's happening?",
+            "Let's go! What do you need help with?",
+            "I'm awake! How can I help you today?",
+            "Back online! What can I tackle for you?",
+        ]
         await asyncio.sleep(2.0)
         speak = SpeakRequest(
-            text="I'm awake! How can I help you today?",
+            text=random.choice(greetings),
             interrupt=False,
             emotion=Emotion.HAPPY,
         )

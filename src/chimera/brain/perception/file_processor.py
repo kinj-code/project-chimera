@@ -44,7 +44,8 @@ class FileProcessor:
         Args:
             event: The FileDropEvent with file_paths.
         """
-        supported = {".pdf", ".docx", ".txt", ".md"}
+        supported = {".pdf", ".docx", ".txt", ".md", ".pptx", ".xlsx", ".csv",
+                     ".html", ".htm", ".json", ".xml", ".rtf", ".epub"}
 
         for file_path in event.file_paths:
             logger.info(f"File dropped: {file_path}")
