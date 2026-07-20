@@ -1,0 +1,38 @@
+# Profile: Basic — Minimal resource usage, suitable for low-end hardware.
+# Inherits all unspecified keys from config/default.yaml.
+
+application:
+  safe_mode: false
+
+companion:
+  renderer: "2d"
+  scale: 1.0
+
+brain:
+  local:
+    n_ctx: 2048
+    n_threads: 2
+    quantization: "Q3_K_M"
+  behavior:
+    idle_action_interval_ms: 60000
+    max_reactive_gestures_per_minute: 3
+  provider_chain:
+    - "local"
+    - "offline"
+
+memory:
+  short_term:
+    max_turns: 10
+  long_term:
+    enabled: false
+
+audio:
+  stt:
+    model_size: "tiny"
+    vad_mode: "ptt"
+  tts:
+    engine: "os-tts"
+
+perception:
+  screen_awareness:
+    enabled: false

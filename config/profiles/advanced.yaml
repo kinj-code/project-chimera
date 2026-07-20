@@ -1,0 +1,64 @@
+# Profile: Advanced — Full feature set, high-end GPU recommended.
+# Inherits all unspecified keys from config/default.yaml.
+
+application:
+  safe_mode: false
+
+companion:
+  renderer: "3d"
+  scale: 1.0
+  opacity: 0.95
+  always_on_top: true
+
+brain:
+  local:
+    n_ctx: 8192
+    n_threads: 8
+    quantization: "Q5_K_M"
+    temperature: 0.7
+  cloud:
+    model: "gpt-4o"
+    temperature: 0.7
+    max_tokens: 2048
+  behavior:
+    idle_action_interval_ms: 15000
+    max_reactive_gestures_per_minute: 12
+  provider_chain:
+    - "local"
+    - "cloud"
+    - "offline"
+
+memory:
+  short_term:
+    max_turns: 40
+  long_term:
+    enabled: true
+    engine: "chromadb"
+    max_entries: 10000
+
+audio:
+  stt:
+    model_size: "medium"
+    device: "cuda"
+    vad_mode: "ambient"
+  tts:
+    engine: "piper"
+    voice: "en_US-lessac-medium"
+    fallback: "os-tts"
+    speed: 1.0
+
+perception:
+  screen_awareness:
+    enabled: true
+    capture_interval_ms: 1000
+  input:
+    capture_mouse_hover: true
+    capture_file_drops: true
+
+telemetry:
+  log_level: "DEBUG"
+  diagnostics_sharing: "ask"
+
+watchdog:
+  enabled: true
+  auto_restart: true

@@ -1,0 +1,40 @@
+# Profile: Balanced — Recommended for most users with modern hardware.
+# Inherits all unspecified keys from config/default.yaml.
+
+application:
+  safe_mode: false
+
+companion:
+  renderer: "2d"
+
+brain:
+  local:
+    n_ctx: 4096
+    n_threads: 4
+    quantization: "Q4_K_M"
+  behavior:
+    idle_action_interval_ms: 30000
+    max_reactive_gestures_per_minute: 6
+  provider_chain:
+    - "local"
+    - "cloud"
+    - "offline"
+
+memory:
+  short_term:
+    max_turns: 20
+  long_term:
+    enabled: true
+    engine: "faiss"
+
+audio:
+  stt:
+    model_size: "base"
+    vad_mode: "ptt"
+  tts:
+    engine: "piper"
+    fallback: "os-tts"
+
+perception:
+  screen_awareness:
+    enabled: false
