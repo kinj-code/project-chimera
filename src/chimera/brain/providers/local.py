@@ -184,7 +184,10 @@ class LocalLLMProvider:
                         "doc", "txt", "read", "ingest", "uploaded", "dropped"]
         rag_context = ""
         if any(kw in prompt_text.lower() for kw in rag_keywords):
-            rag_context = await self._run_rag_query(prompt_text)
+            # Use k=8 for summarization, k=5 for other queries.
+            k = 8 if "summarize" in prompt_text.lower() else 5
+            rag_context = await self._run_rag_query(prompt_text, k)
+            logger.info(f"[RAG] Retrieved chunks for: '{prompt_text}'")
 
         # --- Tool calling: intercept user intent before LLM generation ---
         os_context = await self._run_os_tools(prompt_text)
@@ -375,17 +378,18 @@ class LocalLLMProvider:
 
         return "\n".join(results) if results else ""
 
-    async def _run_rag_query(self, prompt: str) -> str:
+    async def _run_rag_query(self, prompt: str, k: int = 5) -> str:
         """Query RAG for relevant document context.
 
         Args:
             prompt: The user's input text.
+            k: Number of chunks to retrieve.
 
         Returns:
             Retrieved document context, or empty string.
         """
         if self._rag and hasattr(self._rag, 'query_context'):
-            return await self._rag.query_context(prompt)  # type: ignore[union-attr]
+            return await self._rag.query_context(prompt, k)  # type: ignore[union-attr]
         return ""
 
     def _get_persona_instructions(self) -> str:
