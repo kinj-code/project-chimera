@@ -339,7 +339,14 @@ class LocalLLMProvider:
         if any(kw in lower for kw in screen_keywords):
             logger.info("Tool: capturing screen OCR")
             screen_text = await self._os.capture_screen()  # type: ignore[union-attr]
-            results.append(f"Screen text (OCR):\n{screen_text}")
+            # Detect OCR environment failure.
+            if screen_text == "[OCR_UNAVAILABLE_IN_ENV]":
+                results.append(
+                    "If asked about the screen, say: 'I cannot read the screen "
+                    "because the Tesseract OCR system library is missing on this machine.'"
+                )
+            else:
+                results.append(f"Screen text (OCR):\n{screen_text}")
 
         # File system keywords.
         fs_keywords = [

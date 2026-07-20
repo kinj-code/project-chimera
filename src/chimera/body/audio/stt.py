@@ -6,6 +6,9 @@ a TextInputEvent with the transcribed text.
 
 All recording and inference runs in background threads to avoid UI freezes.
 
+Degrades gracefully if PortAudio is missing — publishes a friendly
+SpeakRequest informing the user instead of error spam.
+
 Author: Project Chimera Engineering Team
 """
 
@@ -19,7 +22,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from chimera.bridge.events import ListenRequest, TextInputEvent
+from chimera.bridge.events import ListenRequest, TextInputEvent, SpeakRequest, Emotion
 
 if TYPE_CHECKING:
     pass
@@ -31,7 +34,6 @@ class SpeechToTextManager:
     Publishes TextInputEvent with transcribed text for the Brain to process.
     """
 
-    # Default whisper model (tiny for speed, base for better accuracy).
     DEFAULT_MODEL = "tiny"
     SAMPLE_RATE = 16000
 
@@ -39,6 +41,8 @@ class SpeechToTextManager:
         self._bus = bus
         self._model = None
         self._model_lock = threading.Lock()
+        self._audio_available: bool | None = None  # None = unchecked
+        self._notified_missing: bool = False  # Only notify once
         logger.info("SpeechToTextManager initialized (faster-whisper)")
 
     # ------------------------------------------------------------------
@@ -50,9 +54,39 @@ class SpeechToTextManager:
         self._bus.subscribe(ListenRequest, self._on_listen_request)  # type: ignore[arg-type]
         logger.info("SpeechToTextManager attached to EventBus (ListenRequest)")
 
-        # Preload model in background.
+        # Check audio backend availability.
+        await asyncio.to_thread(self._check_audio)
+
+        # Preload whisper model in background.
         await asyncio.to_thread(self._load_model)
         logger.success("SpeechToTextManager ready")
+
+    # ------------------------------------------------------------------
+    # Audio backend check
+    # ------------------------------------------------------------------
+
+    def _check_audio(self) -> None:
+        """Check if any audio recording backend is available."""
+        if self._audio_available is not None:
+            return
+
+        # Try sounddevice first.
+        try:
+            import sounddevice as sd  # noqa: F401
+            import numpy as np  # noqa: F401
+
+            self._audio_available = True
+            logger.info("Audio backend available (sounddevice)")
+            return
+        except Exception:
+            pass
+
+        # PortAudio/system library missing.
+        self._audio_available = False
+        logger.warning(
+            "No audio recording backend available. PortAudio system library "
+            "is missing. Voice input will be disabled."
+        )
 
     # ------------------------------------------------------------------
     # Model loading
@@ -84,15 +118,35 @@ class SpeechToTextManager:
     async def _on_listen_request(self, event: ListenRequest) -> None:
         """Handle a ListenRequest by recording and transcribing.
 
+        If PortAudio is missing, publishes a friendly SpeakRequest
+        instead of attempting to record (which would log red errors).
+
         Args:
             event: The ListenRequest with recording duration.
         """
+        # --- Audio unavailable → friendly message ---
+        if self._audio_available is False:
+            if not self._notified_missing:
+                await self._bus.publish(  # type: ignore[union-attr]
+                    SpeakRequest(
+                        text="I can't hear you because the PortAudio system library is missing on this machine. Voice input disabled.",
+                        interrupt=False,
+                        emotion=Emotion.NEUTRAL,
+                    )
+                )
+                self._notified_missing = True
+                logger.warning(
+                    "PortAudio system library not found. Voice input disabled. "
+                    "Install libportaudio2 for voice support."
+                )
+            return
+
         logger.info(f"Listening for {event.duration_s:.1f}s...")
 
         try:
             text = await asyncio.to_thread(self._record_and_transcribe, event.duration_s)
         except Exception as exc:
-            logger.error(f"STT failed: {exc}")
+            logger.warning(f"STT failed: {exc}")
             return
 
         if text:
@@ -134,7 +188,7 @@ class SpeechToTextManager:
             # Transcribe.
             return self._transcribe(tmp_path)
         except Exception as exc:
-            logger.error(f"Recording/transcription error: {exc}")
+            logger.warning(f"Recording/transcription error: {exc}")
             return ""
         finally:
             if tmp_path is not None:
@@ -167,7 +221,7 @@ class SpeechToTextManager:
 
             return recording.tobytes()
         except Exception as exc:
-            logger.error(f"Audio recording failed: {exc}")
+            logger.warning(f"Audio recording failed (PortAudio missing?): {exc}")
             return None
 
     def _transcribe(self, wav_path: str) -> str:
@@ -180,7 +234,7 @@ class SpeechToTextManager:
             Transcribed text, or empty string.
         """
         if self._model is None:
-            logger.error("Whisper model not loaded. Cannot transcribe.")
+            logger.warning("Whisper model not loaded. Cannot transcribe.")
             return ""
 
         try:
@@ -188,5 +242,5 @@ class SpeechToTextManager:
             text = " ".join(seg.text.strip() for seg in segments)
             return text.strip()
         except Exception as exc:
-            logger.error(f"Transcription failed: {exc}")
+            logger.warning(f"Transcription failed: {exc}")
             return ""

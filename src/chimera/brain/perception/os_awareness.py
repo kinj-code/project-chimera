@@ -95,7 +95,7 @@ class OSAwarenessManager:
     def _capture_blocking(self, max_chars: int) -> str:
         """Take a screenshot and run OCR. Runs in a background thread."""
         if not self._check_ocr():
-            return "[OCR UNAVAILABLE]"
+            return "[OCR_UNAVAILABLE_IN_ENV]"
 
         tmp_path: str | None = None
         try:
