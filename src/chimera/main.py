@@ -52,6 +52,7 @@ async def bootstrap() -> None:
     from chimera.bridge.state import StateManager
     from chimera.brain.memory.rag_engine import RAGManager
     from chimera.brain.perception.file_processor import FileProcessor
+    from chimera.brain.perception.os_awareness import OSAwarenessManager
 
     # 0. Theme & State.
     state_mgr = StateManager()
@@ -78,9 +79,13 @@ async def bootstrap() -> None:
     logger.info("Starting RAGManager...")
     rag = RAGManager()
 
-    # 4. LocalLLMProvider (real LLM with Qwen2 + RAG context).
-    logger.info("Starting LocalLLMProvider (Qwen2 0.5B + RAG)...")
-    llm = LocalLLMProvider(bus, rag_manager=rag)
+    # 3.6. OSAwarenessManager (screen OCR, process list, app launch).
+    logger.info("Starting OSAwarenessManager...")
+    os_aware = OSAwarenessManager()
+
+    # 4. LocalLLMProvider (real LLM with Qwen2 + RAG + OS awareness).
+    logger.info("Starting LocalLLMProvider (Qwen2 0.5B + RAG + OS)...")
+    llm = LocalLLMProvider(bus, rag_manager=rag, os_awareness=os_aware)
     await llm.attach()
 
     # 5. VoiceManager (Piper TTS).
@@ -119,6 +124,7 @@ async def bootstrap() -> None:
     loop._chimera_llm = llm  # type: ignore[attr-defined]
     loop._chimera_voice = voice  # type: ignore[attr-defined]
     loop._chimera_rag = rag  # type: ignore[attr-defined]
+    loop._chimera_os = os_aware  # type: ignore[attr-defined]
 
 
 def main() -> None:

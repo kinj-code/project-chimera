@@ -49,6 +49,7 @@ class LocalLLMProvider:
         n_threads: int = 4,
         temperature: float = 0.8,
         rag_manager: object | None = None,
+        os_awareness: object | None = None,
     ) -> None:
         """Initialize the local LLM provider.
 
@@ -59,11 +60,13 @@ class LocalLLMProvider:
             n_threads: CPU threads for inference.
             temperature: Sampling temperature (0.0-2.0).
             rag_manager: Optional RAGManager for document-aware responses.
+            os_awareness: Optional OSAwarenessManager for screen/process/app access.
         """
         self._bus = bus
         self._temperature = temperature
         self._persona: str = "Friendly"
         self._rag = rag_manager
+        self._os = os_awareness
 
         # Resolve model path.
         if model_path is None:
@@ -175,26 +178,30 @@ class LocalLLMProvider:
 
         logger.info(f"LLM input: '{prompt_text}'")
 
-        # Check RAG for relevant document context.
-        rag_context = ""
-        if self._rag and hasattr(self._rag, 'query_context'):
-            rag_context = await self._rag.query_context(prompt_text)  # type: ignore[union-attr]
+        # --- Tool calling: intercept user intent before LLM generation ---
+        os_context = await self._run_os_tools(prompt_text)
+        rag_context = await self._run_rag_query(prompt_text)
 
         # Build the Qwen2 chat template prompt.
-        persona_instructions = self._get_persona_instructions()
         base_prompt = (
             "You are Chimera, a friendly desktop companion. "
-            "You CANNOT see the user's screen, files, or desktop. "
-            "If asked about the screen, desktop, or files, say: "
-            "'I don't have screen access yet, but I'm working on it!'. "
-            "Keep responses under 2 sentences. "
-            "Be warm, concise, and helpful. "
-            "Never claim to see things you cannot see."
+            "You CAN see the user's screen via OCR text extraction when asked. "
+            "You CAN list running applications. You CAN open apps. "
+            "Use the provided context to answer accurately. "
+            "If context is provided for a question about the screen or processes, use it. "
+            "Keep responses under 2 sentences. Be warm, concise, and helpful."
         )
+        # Layer: OS context first (highest priority), then RAG context.
+        combined_context = ""
+        if os_context:
+            combined_context += f"OS CONTEXT:\n{os_context}\n\n"
         if rag_context:
+            combined_context += f"DOCUMENT CONTEXT:\n{rag_context}\n\n"
+
+        if combined_context:
             system_prompt = (
                 f"Use the following context to answer the user's question:\n\n"
-                f"{rag_context}\n\n"
+                f"{combined_context}"
                 f"---\n"
                 f"{base_prompt}"
             )
@@ -260,6 +267,65 @@ class LocalLLMProvider:
                 raw = raw[: last_period + 1]
 
         return raw or "I'm not sure what to say to that."
+
+    # ------------------------------------------------------------------
+    # Tool calling helpers
+    # ------------------------------------------------------------------
+
+    async def _run_os_tools(self, prompt: str) -> str:
+        """Run OS awareness tools based on keyword matching.
+
+        Args:
+            prompt: The user's input text.
+
+        Returns:
+            Tool results as a combined context string, or empty string.
+        """
+        if self._os is None:
+            return ""
+
+        results: list[str] = []
+        lower = prompt.lower()
+
+        # Screen OCR: "screen", "see", "what's on my", "display"
+        screen_keywords = ["screen", "see", "display", "what's on my", "looking at"]
+        if any(kw in lower for kw in screen_keywords):
+            logger.info("Tool: capturing screen OCR")
+            screen_text = await self._os.capture_screen()  # type: ignore[union-attr]
+            results.append(f"Screen text (OCR):\n{screen_text}")
+
+        # Process list: "apps", "running", "processes", "programs"
+        process_keywords = ["apps", "running", "processes", "programs", "applications"]
+        if any(kw in lower for kw in process_keywords):
+            logger.info("Tool: listing processes")
+            proc_list = await self._os.list_processes()  # type: ignore[union-attr]
+            results.append(proc_list)
+
+        # App launch: "open ", "launch "
+        launch_keywords = ["open ", "launch "]
+        for kw in launch_keywords:
+            if kw in lower:
+                idx = lower.find(kw) + len(kw)
+                app_name = prompt[idx:].strip().split()[0] if idx < len(prompt) else ""
+                if app_name:
+                    logger.info(f"Tool: launching {app_name}")
+                    launch_result = await self._os.launch_application(app_name)  # type: ignore[union-attr]
+                    results.append(launch_result)
+
+        return "\n".join(results) if results else ""
+
+    async def _run_rag_query(self, prompt: str) -> str:
+        """Query RAG for relevant document context.
+
+        Args:
+            prompt: The user's input text.
+
+        Returns:
+            Retrieved document context, or empty string.
+        """
+        if self._rag and hasattr(self._rag, 'query_context'):
+            return await self._rag.query_context(prompt)  # type: ignore[union-attr]
+        return ""
 
     def _get_persona_instructions(self) -> str:
         """Return persona-specific instructions for the system prompt."""
