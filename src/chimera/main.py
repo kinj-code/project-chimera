@@ -48,6 +48,13 @@ async def bootstrap() -> None:
     from chimera.body.audio.stt import SpeechToTextManager
     from chimera.ui.companion_overlay import CompanionOverlay
     from chimera.ui.main_window import MainWindow
+    from chimera.ui.widgets.theme_engine import ThemeManager
+    from chimera.bridge.state import StateManager
+
+    # 0. Theme & State.
+    state_mgr = StateManager()
+    theme_mgr = ThemeManager(state_mgr)
+    theme_mgr.load_persisted()
 
     # 1. EventBus.
     logger.info("Starting EventBus...")
@@ -83,6 +90,11 @@ async def bootstrap() -> None:
     # Wire settings references so the MainWindow can update them.
     main_window.llm_provider = llm
     main_window.voice_manager = voice
+    main_window.theme_manager = theme_mgr
+
+    # Apply the persisted/loaded theme.
+    from PySide6.QtWidgets import QApplication as QA
+    theme_mgr.apply_theme(QA.instance(), theme_mgr.current_theme)
 
     logger.success("Chimera is fully loaded!")
     logger.info("Chat window + Companion robot face (bottom-right) are visible.")

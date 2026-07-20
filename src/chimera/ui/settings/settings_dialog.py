@@ -34,12 +34,16 @@ if TYPE_CHECKING:
 class SettingsDialog(QDialog):
     """A professional settings dialog for the Chimera companion."""
 
+    # Callback for live theme preview. Set by caller before exec().
+    on_theme_changed: callable | None = None
+
     def __init__(
         self,
         parent: QWidget | None = None,
         current_persona: str = "Friendly",
         current_temperature: float = 0.8,
         voice_enabled: bool = True,
+        current_theme: str = "Neon",
     ) -> None:
         """Initialize the dialog.
 
@@ -48,6 +52,7 @@ class SettingsDialog(QDialog):
             current_persona: Currently selected persona name.
             current_temperature: Current temperature (0.0-1.0).
             voice_enabled: Whether voice output is active.
+            current_theme: Active theme name.
         """
         super().__init__(parent)
         self.setWindowTitle("Chimera Settings")
@@ -58,12 +63,14 @@ class SettingsDialog(QDialog):
         self._persona: str = current_persona
         self._temperature: float = current_temperature
         self._voice_enabled: bool = voice_enabled
+        self._theme: str = current_theme
 
         # Widgets (populated in _setup_ui).
         self._persona_combo: QComboBox | None = None
         self._temperature_slider: QSlider | None = None
         self._temperature_label: QLabel | None = None
         self._voice_checkbox: QCheckBox | None = None
+        self._theme_combo: QComboBox | None = None
 
         self._setup_ui()
         self._load_values()
@@ -83,6 +90,10 @@ class SettingsDialog(QDialog):
     @property
     def voice_enabled(self) -> bool:
         return self._voice_enabled
+
+    @property
+    def theme(self) -> str:
+        return self._theme
 
     # ------------------------------------------------------------------
     # UI Construction
@@ -164,6 +175,20 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(voice_group)
 
+        # --- Appearance Group ---
+        appearance_group = QGroupBox("Appearance")
+        appearance_group.setStyleSheet(self._group_style())
+        appearance_layout = QFormLayout(appearance_group)
+        appearance_layout.setSpacing(8)
+
+        self._theme_combo = QComboBox()
+        self._theme_combo.addItems(["Neon", "Cyberpunk", "Minimal", "System"])
+        self._theme_combo.setStyleSheet(self._dropdown_style())
+        self._theme_combo.currentTextChanged.connect(self._on_theme_changed)
+
+        appearance_layout.addRow("Theme:", self._theme_combo)
+        layout.addWidget(appearance_group)
+
         # --- Buttons ---
         button_layout = QHBoxLayout()
         button_layout.addStretch()
@@ -195,6 +220,12 @@ class SettingsDialog(QDialog):
     def _on_voice_changed(self, state: int) -> None:
         self._voice_enabled = state == Qt.CheckState.Checked.value
 
+    def _on_theme_changed(self, text: str) -> None:
+        """Live theme preview — applies instantly when dropdown changes."""
+        self._theme = text
+        if self.on_theme_changed is not None:
+            self.on_theme_changed(text)
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -211,6 +242,11 @@ class SettingsDialog(QDialog):
 
         if self._voice_checkbox is not None:
             self._voice_checkbox.setChecked(self._voice_enabled)
+
+        if self._theme_combo is not None:
+            idx = self._theme_combo.findText(self._theme)
+            if idx >= 0:
+                self._theme_combo.setCurrentIndex(idx)
 
     # ------------------------------------------------------------------
     # Stylesheets

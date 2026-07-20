@@ -38,6 +38,8 @@ class MainWindow(QMainWindow):
     llm_provider: object | None = None
     # Reference to VoiceManager for settings changes.
     voice_manager: object | None = None
+    # Reference to ThemeManager for live theme switching.
+    theme_manager: object | None = None
 
     def __init__(self, bus: EventBus) -> None:
         super().__init__()
@@ -140,7 +142,17 @@ class MainWindow(QMainWindow):
             current_persona=getattr(self.llm_provider, '_persona', 'Friendly'),
             current_temperature=getattr(self.llm_provider, '_temperature', 0.8),
             voice_enabled=getattr(self.voice_manager, '_enabled', True),
+            current_theme=getattr(self.theme_manager, 'current_theme', 'Neon'),
         )
+
+        # Wire live theme preview callback.
+        if self.theme_manager and hasattr(self.theme_manager, 'apply_theme'):
+            def _live_preview(theme_name: str) -> None:
+                from PySide6.QtWidgets import QApplication
+                self.theme_manager.apply_theme(QApplication.instance(), theme_name)  # type: ignore[union-attr]
+
+            dlg.on_theme_changed = _live_preview
+
         if dlg.exec() == dlg.DialogCode.Accepted:
             # Apply persona.
             if self.llm_provider and hasattr(self.llm_provider, 'set_persona'):
@@ -151,6 +163,9 @@ class MainWindow(QMainWindow):
             # Apply voice.
             if self.voice_manager and hasattr(self.voice_manager, 'set_enabled'):
                 self.voice_manager.set_enabled(dlg.voice_enabled)
+            # Persist theme.
+            if self.theme_manager and hasattr(self.theme_manager, 'persist_theme'):
+                self.theme_manager.persist_theme(dlg.theme)  # type: ignore[union-attr]
             self._append_to_log("System", "Settings updated.")
 
     # ------------------------------------------------------------------
