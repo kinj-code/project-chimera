@@ -45,6 +45,7 @@ async def bootstrap() -> None:
     from chimera.bridge.bus import EventBus
     from chimera.brain.providers.local import LocalLLMProvider
     from chimera.body.audio.tts import VoiceManager
+    from chimera.body.audio.stt import SpeechToTextManager
     from chimera.ui.companion_overlay import CompanionOverlay
     from chimera.ui.main_window import MainWindow
 
@@ -69,10 +70,15 @@ async def bootstrap() -> None:
     llm = LocalLLMProvider(bus)
     await llm.attach()
 
-    # 5. VoiceManager (pyttsx3 TTS).
-    logger.info("Starting VoiceManager...")
+    # 5. VoiceManager (Piper TTS).
+    logger.info("Starting VoiceManager (Piper)...")
     voice = VoiceManager(bus)
     await voice.attach()
+
+    # 6. SpeechToTextManager (faster-whisper).
+    logger.info("Starting SpeechToTextManager (faster-whisper)...")
+    stt = SpeechToTextManager(bus)
+    await stt.attach()
 
     # Wire settings references so the MainWindow can update them.
     main_window.llm_provider = llm

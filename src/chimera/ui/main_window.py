@@ -14,14 +14,16 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QAction
 from PySide6.QtWidgets import (
+    QHBoxLayout,
     QLineEdit,
     QMainWindow,
+    QPushButton,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from chimera.bridge.events import SpeakRequest, TextInputEvent  # type: ignore[import-untyped]
+from chimera.bridge.events import SpeakRequest, TextInputEvent, ListenRequest  # type: ignore[import-untyped]
 
 if TYPE_CHECKING:
     from chimera.bridge.bus import EventBus
@@ -76,8 +78,31 @@ class MainWindow(QMainWindow):
         )
         self._input.returnPressed.connect(self._on_send)
 
+        # Input row: text field + mic button.
+        input_row = QHBoxLayout()
+        input_row.setSpacing(6)
+        input_row.addWidget(self._input, stretch=1)
+
+        self._mic_button = QPushButton("🎤")
+        self._mic_button.setFixedWidth(44)
+        self._mic_button.setFixedHeight(44)
+        self._mic_button.setToolTip("Push to Talk (5s recording)")
+        self._mic_button.setStyleSheet(
+            "QPushButton {"
+            "  background-color: #c0392b;"
+            "  color: white;"
+            "  border: none;"
+            "  border-radius: 22px;"
+            "  font-size: 20px;"
+            "}"
+            "QPushButton:hover { background-color: #e74c3c; }"
+            "QPushButton:pressed { background-color: #962b22; }"
+        )
+        self._mic_button.clicked.connect(self._on_mic_pressed)
+        input_row.addWidget(self._mic_button, stretch=0)
+
         layout.addWidget(self._log, stretch=1)
-        layout.addWidget(self._input, stretch=0)
+        layout.addLayout(input_row, stretch=0)
 
         # Welcome message.
         self._append_to_log("System", "Welcome to Project Chimera. Type a message to begin.")
@@ -218,6 +243,17 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _on_mic_pressed(self) -> None:
+        """Handle Push-to-Talk button click.
+
+        Publishes a ListenRequest on the EventBus. The STT manager
+        will record audio, transcribe it, and publish a TextInputEvent.
+        """
+        import asyncio
+
+        self._append_to_log("System", "🎤 Listening... (5 seconds)")
+        asyncio.ensure_future(self._bus.publish(ListenRequest(duration_s=5.0)))
 
     def _append_to_log(self, speaker: str, message: str) -> None:
         """Append a formatted message to the chat log.

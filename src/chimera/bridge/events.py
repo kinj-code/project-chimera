@@ -369,6 +369,16 @@ class ContextUpdate(ChimeraEvent):
     system_status: SystemStatus = SystemStatus.HEALTHY
 
 
+class ListenRequest(SystemEvent):
+    """UI → Body: request to start listening for voice input.
+
+    The STT manager subscribes to this, records audio,
+    transcribes it, and publishes a TextInputEvent with the result.
+    """
+
+    duration_s: float = Field(default=5.0, ge=1.0, le=15.0, description="Recording duration in seconds.")
+
+
 # ------------------------------------------------------------------
 # Union type for subscription type-checking
 # ------------------------------------------------------------------
