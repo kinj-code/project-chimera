@@ -85,7 +85,18 @@ class VoiceManager:
             if os.path.getsize(tmp_path) == 0:
                 raise RuntimeError("Piper generated empty audio")
 
-            # 2. Play via simpleaudio (preferred, non-blocking).
+            # 2. Play via ffplay (most reliable across platforms).
+            try:
+                subprocess.run(
+                    ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", tmp_path],
+                    timeout=15,
+                    capture_output=True,
+                )
+                return
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+
+            # 3. Fall back to simpleaudio.
             try:
                 import simpleaudio
 
@@ -102,17 +113,6 @@ class VoiceManager:
                 play_obj.wait_done()
                 return
             except Exception:
-                pass  # Fall through to ffplay.
-
-            # 3. Fall back to ffplay.
-            try:
-                subprocess.run(
-                    ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", tmp_path],
-                    timeout=15,
-                    capture_output=True,
-                )
-                return
-            except subprocess.TimeoutExpired:
                 pass
 
             # 4. Last resort: aplay (Linux).
