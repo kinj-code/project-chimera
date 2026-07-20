@@ -1,4 +1,3 @@
-"""VoiceManager — neural TTS using Piper Python API + simpleaudio playback.
 
 Uses piper-tts for synthesis. Plays via simpleaudio (cross-platform).
 Falls back to ffplay or aplay if simpleaudio fails.

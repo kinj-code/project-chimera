@@ -44,7 +44,8 @@ class FileProcessor:
         Args:
             event: The FileDropEvent with file_paths.
         """
-        supported = {".pdf", ".docx", ".txt", ".md"}
+        supported = {".pdf", ".docx", ".txt", ".md", ".pptx", ".xlsx", ".csv",
+                     ".html", ".htm", ".json", ".xml", ".rtf", ".epub"}
 
         for file_path in event.file_paths:
             logger.info(f"File dropped: {file_path}")
@@ -74,7 +75,9 @@ class FileProcessor:
 
             # Run ingestion in background thread.
             try:
-                result = await self._rag.ingest_file(file_path)  # type: ignore[union-attr]
+                # Use filename as document_id for isolation
+                doc_id = filename
+                result = await self._rag.ingest_file(file_path, document_id=doc_id)  # type: ignore[union-attr]
             except Exception as exc:
                 logger.error(f"Ingestion failed for {file_path}: {exc}")
                 result = f"❌ Failed to process {filename}"

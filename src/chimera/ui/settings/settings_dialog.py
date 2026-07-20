@@ -15,14 +15,18 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QDialog,
+    QFontComboBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QPlainTextEdit,
     QPushButton,
     QSlider,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -56,7 +60,7 @@ class SettingsDialog(QDialog):
         """
         super().__init__(parent)
         self.setWindowTitle("Chimera Settings")
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(480)
         self.setModal(True)
 
         # Store references to the value holders.
@@ -64,6 +68,7 @@ class SettingsDialog(QDialog):
         self._temperature: float = current_temperature
         self._voice_enabled: bool = voice_enabled
         self._theme: str = current_theme
+        self._custom_persona: str = ""
 
         # Widgets (populated in _setup_ui).
         self._persona_combo: QComboBox | None = None
@@ -71,6 +76,7 @@ class SettingsDialog(QDialog):
         self._temperature_label: QLabel | None = None
         self._voice_checkbox: QCheckBox | None = None
         self._theme_combo: QComboBox | None = None
+        self._custom_persona_edit: QPlainTextEdit | None = None
 
         self._setup_ui()
         self._load_values()
@@ -188,6 +194,64 @@ class SettingsDialog(QDialog):
 
         appearance_layout.addRow("Theme:", self._theme_combo)
         layout.addWidget(appearance_group)
+
+        # --- Custom Theme Group ---
+        custom_theme_group = QGroupBox("Custom Theme")
+        custom_theme_group.setStyleSheet(self._group_style())
+        custom_theme_layout = QFormLayout(custom_theme_group)
+        custom_theme_layout.setSpacing(8)
+
+        self._custom_bg_color = QLabel("Background:")
+        self._custom_bg_btn = QPushButton("Pick Color")
+        self._custom_bg_btn.setStyleSheet("background-color: #0d1117; border: 1px solid #444; padding: 4px 12px;")
+        self._custom_bg_btn.clicked.connect(self._pick_bg_color)
+
+        self._custom_accent_color = QLabel("Accent:")
+        self._custom_accent_btn = QPushButton("Pick Color")
+        self._custom_accent_btn.setStyleSheet("background-color: #58a6ff; border: 1px solid #444; padding: 4px 12px;")
+        self._custom_accent_btn.clicked.connect(self._pick_accent_color)
+
+        self._custom_text_color = QLabel("Text:")
+        self._custom_text_btn = QPushButton("Pick Color")
+        self._custom_text_btn.setStyleSheet("background-color: #c9d1d9; border: 1px solid #444; padding: 4px 12px; color: #0d1117;")
+        self._custom_text_btn.clicked.connect(self._pick_text_color)
+
+        self._custom_font = QFontComboBox()
+        self._custom_font.currentFontChanged.connect(self._on_custom_font_changed)
+
+        custom_theme_layout.addRow("Background:", self._custom_bg_btn)
+        custom_theme_layout.addRow("Accent:", self._custom_accent_btn)
+        custom_theme_layout.addRow("Text:", self._custom_text_btn)
+        custom_theme_layout.addRow("Font:", self._custom_font)
+
+        layout.addWidget(custom_theme_group)
+
+        # --- Custom Persona Group ---
+        custom_persona_group = QGroupBox("Custom Persona")
+        custom_persona_group.setStyleSheet(self._group_style())
+        custom_persona_layout = QVBoxLayout(custom_persona_group)
+        custom_persona_layout.setSpacing(8)
+
+        custom_persona_label = QLabel("Define your companion's personality (overrides dropdown):")
+        custom_persona_label.setStyleSheet("color: #aaa; font-size: 12px;")
+        custom_persona_label.setWordWrap(True)
+
+        self._custom_persona_edit = QPlainTextEdit()
+        self._custom_persona_edit.setPlaceholderText(
+            'e.g., "You are a grumpy old wizard who speaks in riddles but always helps."\n'
+            'Or: "You are a cyberpunk AI with a neon aesthetic. Use slang and neon emojis."\n'
+            'Or: "You are a strict mentor who gives tough love but always helps."'
+        )
+        self._custom_persona_edit.setStyleSheet(
+            "background-color: #1a1a1a; color: #e0e0e0; border: 1px solid #444; "
+            "border-radius: 4px; padding: 8px; font-family: monospace;"
+        )
+        self._custom_persona_edit.setMinimumHeight(100)
+
+        custom_persona_layout.addWidget(custom_persona_label)
+        custom_persona_layout.addWidget(self._custom_persona_edit)
+
+        layout.addWidget(custom_persona_group)
 
         # --- Buttons ---
         button_layout = QHBoxLayout()

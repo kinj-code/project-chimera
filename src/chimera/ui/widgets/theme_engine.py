@@ -506,6 +506,9 @@ class ThemeManager:
         self._state_mgr = state_manager
         self._current = "Neon"
         self._app: QApplication | None = None
+        # Custom theme storage
+        self._custom_qss: str | None = None
+        self._custom_colors: dict[str, str] = {}
 
     @property
     def current_theme(self) -> str:
@@ -548,15 +551,199 @@ class ThemeManager:
 
         Args:
             app: The QApplication instance.
-            theme_name: One of 'Neon', 'Cyberpunk', 'Minimal', 'System'.
+            theme_name: One of 'Neon', 'Cyberpunk', 'Minimal', 'System', 'Custom'.
         """
-        if theme_name not in self.THEMES:
+        if theme_name == "Custom" and self._custom_qss:
+            qss = self._custom_qss
+            theme_name = "Custom"
+        elif theme_name in self.THEMES:
+            qss = self.THEMES[theme_name]
+        else:
             logger.warning(f"Unknown theme '{theme_name}'. Falling back to Neon.")
+            qss = self.THEMES["Neon"]
             theme_name = "Neon"
 
-        qss = self.THEMES[theme_name]
         app.setStyleSheet(qss)
-
         self._current = theme_name
         self._app = app
         logger.info(f"Theme applied: {theme_name}")
+
+    def set_custom_theme(self, bg_color: str, accent_color: str, text_color: str, font_family: str = "Segoe UI") -> None:
+        """Create and apply a custom QSS theme from color values."""
+        qss = self._generate_custom_qss(bg_color, accent_color, text_color, font_family)
+        self._custom_qss = qss
+        self._custom_colors = {
+            "bg_color": bg_color,
+            "accent_color": accent_color,
+            "text_color": text_color,
+            "font_family": font_family,
+        }
+        if self._app:
+            self.apply_theme(self._app, "Custom")
+
+    def _generate_custom_qss(self, bg_color: str, accent_color: str, text_color: str, font_family: str) -> str:
+        """Generate a QSS stylesheet from color values."""
+        # Convert hex colors to RGB for sub-page gradients etc.
+        def hex_to_rgb(h: str) -> tuple[int, int, int]:
+            h = h.lstrip('#')
+            return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+        bg_rgb = hex_to_rgb(bg_color)
+        accent_rgb = hex_to_rgb(accent_color)
+        text_rgb = hex_to_rgb(text_color)
+
+        # Generate a dynamic QSS based on the provided colors.
+        # This is a simplified template - in practice you'd want more comprehensive theming.
+        qss = f"""
+/* === CHIMERA — CUSTOM THEME === */
+
+QMainWindow, QDialog {{
+    background-color: {bg_color};
+    color: {text_color};
+    font-family: {font_family};
+}}
+
+QMenuBar {{
+    background-color: {bg_color};
+    color: {text_color};
+    border-bottom: 1px solid {accent_color};
+    padding: 2px 0;
+}}
+QMenuBar::item:selected {{
+    background-color: {accent_color};
+    color: {bg_color};
+}}
+QMenu {{
+    background-color: {bg_color};
+    color: {text_color};
+    border: 1px solid {accent_color};
+    padding: 4px 0;
+}}
+QMenu::item:selected {{
+    background-color: {accent_color};
+    color: {bg_color};
+}}
+
+QGroupBox {{
+    color: {accent_color};
+    font-weight: bold;
+    border: 1px solid {accent_color};
+    border-radius: 6px;
+    margin-top: 12px;
+    padding-top: 16px;
+    background-color: {bg_color};
+}}
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 6px;
+    color: {accent_color};
+}}
+
+QPushButton {{
+    background-color: {bg_color};
+    color: {text_color};
+    border: 1px solid {accent_color};
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+}}
+QPushButton:hover {{
+    background-color: {accent_color};
+    color: {bg_color};
+}}
+QPushButton:pressed {{
+    background-color: {accent_color};
+}}
+QPushButton#primaryButton {{
+    background-color: {accent_color};
+    color: {bg_color};
+    border-color: {accent_color};
+    font-weight: bold;
+}}
+QPushButton#primaryButton:hover {{
+    background-color: {accent_color};
+}}
+
+QLineEdit {{
+    background-color: {bg_color};
+    color: {text_color};
+    border: 1px solid {accent_color};
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+}}
+QLineEdit:focus {{
+    border-color: {accent_color};
+}}
+
+QTextEdit {{
+    background-color: {bg_color};
+    color: {text_color};
+    border: 1px solid {accent_color};
+    border-radius: 6px;
+    padding: 8px;
+    font-size: 13px;
+}}
+
+QComboBox {{
+    background-color: {bg_color};
+    color: {text_color};
+    border: 1px solid {accent_color};
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+}}
+QComboBox:hover {{
+    border-color: {accent_color};
+}}
+QComboBox QAbstractItemView {{
+    background-color: {bg_color};
+    color: {text_color};
+    selection-background-color: {accent_color};
+    border: 1px solid {accent_color};
+}}
+
+QLabel {{
+    color: {text_color};
+}}
+QLabel#titleLabel {{
+    color: {accent_color};
+    font-size: 18px;
+    font-weight: bold;
+}}
+
+QSlider::groove:horizontal {{
+    height: 6px;
+    background: {accent_color};
+    border-radius: 3px;
+}}
+QSlider::handle:horizontal {{
+    background: {accent_color};
+    width: 16px;
+    height: 16px;
+    margin: -5px 0;
+    border-radius: 8px;
+}}
+QSlider::sub-page:horizontal {{
+    background: {accent_color};
+    border-radius: 3px;
+}}
+
+QCheckBox {{
+    color: {text_color};
+    font-size: 13px;
+}}
+QCheckBox::indicator {{
+    width: 18px;
+    height: 18px;
+    border: 2px solid {accent_color};
+    border-radius: 4px;
+    background-color: {bg_color};
+}}
+QCheckBox::indicator:checked {{
+    background-color: {accent_color};
+    border-color: {accent_color};
+}}
+"""
+        return qss
